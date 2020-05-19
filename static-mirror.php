@@ -117,12 +117,16 @@ else{
                         //print_r($item->plaintext); exit;
                         //print "\t".$item->innertext."\n";
                         //$item->innertext = NULL;
-                        if(!isset($s['after'])){ $item->remove(); }
-                        else{ $item->innertext = $s['after']; }
+                        if(isset($s['after'])){ $item->innertext = $s['after']; }
+                        elseif(isset($s['src'])){ $item->innertext = (file_exists($patch.$s['src']) ? file_get_contents($patch.$s['src']) : (file_exists($path.$s['src']) ? file_get_contents($path.$s['src']) : file_get_contents($s['src']) );  }
+                        else{ $item->remove(); }
                     }
                     $raw = (string) $html;
                 }
-                if(isset($s['before']) && isset($s['after'])){ $raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw); }
+                if(isset($s['before']) && isset($s['after'])){
+                    //$raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw);
+                    $raw = str_replace($s['before'], $s['after'], $raw);
+                }
             }
         }
     }
