@@ -1,6 +1,12 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 $path = __DIR__.'/cache/';
 $patch = __DIR__.'/patch/';
+
+if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
 
 if(isset($_GET['for']) && strlen($_GET['for']) > 0){
     #gather
@@ -69,10 +75,10 @@ if(isset($_GET['for']) && strlen($_GET['for']) > 0){
 else{
     if(isset($_GET['init']) || !is_dir($path)){
         #configure
-        if(!is_dir($path)){ mkdir($path); chmod($path, 0666); }
-        if(!is_dir($patch)){ mkdir($patch); chmod($patch, 0666); }
+        if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
+        if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
-        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.php', json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
+        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
         //exit;
     }
     #update
@@ -84,14 +90,40 @@ else{
 
     if(!is_array($conf) || strlen($src) < 1){ echo "No MIRROR configured."; exit; }
     
+    $list = scandir($path);
+    foreach($list as $i=>$f){
+        if(!preg_match('#^[\.]{1,2}$#', $f)){ unlink($path.$f); }
+    }
+    
     $raw = file_get_contents($src);
 
     $list = scandir($patch);
     foreach($list as $i=>$f){
+        //*debug*/ print $f."\n";
         if(preg_match('#\.before$#', $f)){
             $before = trim(file_get_contents($patch.$f));
             $after = trim(file_get_contents($patch.substr($f, 0, -7).'.after'));
             $raw = str_replace($before, $after, $raw);
+        }
+        elseif(preg_match('#\.preg$#', $f)){
+            $srp = file_get_contents($patch.$f);
+            $pregjson = json_decode($srp, TRUE);
+            //*debug*/ print_r($srp); print_r($pregjson);
+            foreach($pregjson as $i=>$s){
+                if(isset($s['find']) && class_exists('simple_html_dom_node')){
+                    $html = str_get_html($raw);
+                    $hit = $html->find($s['find']);
+                    foreach($hit as $item){
+                        //print_r($item->plaintext); exit;
+                        //print "\t".$item->innertext."\n";
+                        //$item->innertext = NULL;
+                        if(!isset($s['after'])){ $item->remove(); }
+                        else{ $item->innertext = $s['after']; }
+                    }
+                    $raw = (string) $html;
+                }
+                if(isset($s['before']) && isset($s['after'])){ $raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw); }
+            }
         }
     }
 
