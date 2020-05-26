@@ -17,7 +17,37 @@ class static_mirror {
         $this->path = $path;
         $this->patch = ($patch === FALSE ? $this->path : $patch);
     }
-
+    public static function detect($for=NULL){
+        switch(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for))){
+            case 'initial': self::initial(); self::hermes(); break;
+            case 'backup': self::backup(); self::hermes(); break;
+            case 'update': self::update(); self::hermes(); break;
+            case 'upgrade': self::upgrade(); self::hermes(); break;
+            default:
+                if(isset($for) && strlen($for) > 0){
+                    self::grab($for);
+                    return TRUE;
+                }
+                else{
+                    if(isset($this)){
+                        $path = $this->path;
+                        $patch = $this->patch;
+                    }
+                    else {
+                        global $path, $patch;
+                    }
+                    if(!is_dir($path)){
+                        #configure
+                        self::initial();
+                    }
+                    #update
+                    self::update();
+                    self::hermes();
+                    return TRUE;
+                }
+        }
+        return TRUE;
+    }
     public static function grab($for){
         if(isset($this)){
             $path = $this->path;
@@ -28,6 +58,8 @@ class static_mirror {
         }
         #gather
         #$for = $_GET['for'];
+        
+        $hermes = FALSE;
 
         /*fix*/ if(preg_match('#[\?]#', $for)){ $for = substr($for, 0, strpos($for, '?')); }
 
@@ -52,24 +84,24 @@ class static_mirror {
             case 'css': header('content-type: text/css'); break;
             case 'eot': header('content-type: application/vnd.ms-fontobject'); break;
             case 'gif': header('content-type: image/gif'); break;
-            case 'htm': case 'html': header('content-type: text/html'); break;
+            case 'htm': case 'html': header('content-type: text/html'); $hermes = TRUE; break;
             case 'ico': header('content-type: image/vnd.microsoft.icon'); break;
             case 'jpg': case 'jpeg': header('content-type: image/jpeg'); break;
             case 'js': header('content-type: text/javascript'); break;
             case 'json': header('content-type: application/json'); break;
             case 'otf': header('content-type: font/otf'); break;
             case 'png': header('content-type: image/png'); break;
-            case 'pdf': header('content-type: application/pdf'); break;
-            case 'php': header("HTTP/1.0 404 Not Found"); return FALSE; break;
-            case 'ppt': header('content-type: application/vnd.ms-powerpoint'); break;
-            case 'pptx': header('content-type: application/vnd.openxmlformats-officedocument.presentationml.presentation'); break;
+            case 'pdf': header('content-type: application/pdf'); $hermes = TRUE; break;
+            case 'php': header("HTTP/1.0 404 Not Found"); self::hermes(); return FALSE; break;
+            case 'ppt': header('content-type: application/vnd.ms-powerpoint'); $hermes = TRUE; break;
+            case 'pptx': header('content-type: application/vnd.openxmlformats-officedocument.presentationml.presentation'); $hermes = TRUE; break;
             case 'svg': header('content-type: image/svg+xml'); break;
             case 'ttf': header('content-type: font/ttf'); break;
-            case 'txt': header('content-type: text/plain'); break;
+            case 'txt': header('content-type: text/plain'); $hermes = TRUE; break;
             case 'woff': header('content-type: font/woff'); break;
             case 'woff2': header('content-type: font/woff2'); break;
-            case 'xml': header('content-type: application/xml'); break;
-            default: header("HTTP/1.0 404 Not Found"); return FALSE;
+            case 'xml': header('content-type: application/xml'); $hermes = TRUE; break;
+            default: header("HTTP/1.0 404 Not Found"); self::hermes(); return FALSE;
         }
 
 
@@ -88,6 +120,7 @@ class static_mirror {
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
         }
+        if(!isset($hermes) || $hermes !== FALSE){ self::hermes(); }
         return TRUE;
     }
     public static function initial(){
@@ -165,22 +198,19 @@ class static_mirror {
         print $raw;
         return $raw;
     }
-}
-
-
-
-if(isset($_GET['for']) && strlen($_GET['for']) > 0){
-    \XLtrace\static_mirror::grab($_GET['for']);
-    exit;
-}
-else{
-    if(isset($_GET['init']) || !is_dir($path)){
-        #configure
-        \XLtrace\static_mirror::initial();
-        //exit;
+    public static function upgrade(){
+        self::hermes();
+        return FALSE;
     }
-    #update
-    \XLtrace\static_mirror::update();
-    exit;
+    public static function backup(){
+        self::hermes();
+        return FALSE;
+    }
+    public static function hermes(){
+        return TRUE;
+    }
 }
+
+
+\XLtrace\static_mirror::detect($_GET['for']);
 ?>
