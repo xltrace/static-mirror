@@ -60,7 +60,7 @@ class static_mirror {
             case 'otf': header('content-type: font/otf'); break;
             case 'png': header('content-type: image/png'); break;
             case 'pdf': header('content-type: application/pdf'); break;
-            case 'php': header("HTTP/1.0 404 Not Found"); exit; break;
+            case 'php': header("HTTP/1.0 404 Not Found"); return FALSE; break;
             case 'ppt': header('content-type: application/vnd.ms-powerpoint'); break;
             case 'pptx': header('content-type: application/vnd.openxmlformats-officedocument.presentationml.presentation'); break;
             case 'svg': header('content-type: image/svg+xml'); break;
@@ -69,7 +69,7 @@ class static_mirror {
             case 'woff': header('content-type: font/woff'); break;
             case 'woff2': header('content-type: font/woff2'); break;
             case 'xml': header('content-type: application/xml'); break;
-            default: header("HTTP/1.0 404 Not Found"); exit;
+            default: header("HTTP/1.0 404 Not Found"); return FALSE;
         }
 
 
@@ -80,7 +80,10 @@ class static_mirror {
             print file_get_contents($path.$alias);
         }
         else {
-            $raw = file_get_contents('https://platformvoorplaatselijkebelangen.nl/'.$for);
+            $conf = json_decode(file_get_contents(__DIR__.'/static-mirror.json'), TRUE);
+            $src = reset($conf);
+            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); return FALSE; }
+            $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
