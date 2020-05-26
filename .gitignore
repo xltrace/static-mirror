@@ -1,0 +1,5 @@
+/cache/
+/patch/
+/vendor/
+composer.phar
+composer.lock
