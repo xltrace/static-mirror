@@ -199,8 +199,18 @@ class static_mirror {
         return $raw;
     }
     public static function upgrade(){
+        $raw = file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/static-mirror.php");
         self::hermes();
-        return FALSE;
+        if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
+            file_put_contents(__FILE__, $raw);
+            file_put_contents(__DIR__.'/simple_html_dom.php', file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/simple_html_dom.php"));
+            print "Upgrade complete";
+            return TRUE;
+        }
+        else {
+            print "Upgrade failed, try again!";
+            return FALSE;
+        }
     }
     public static function backup(){
         self::hermes();
