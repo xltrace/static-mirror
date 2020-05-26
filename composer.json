@@ -1,0 +1,15 @@
+{
+    "name": "xltrace/static-mirror",
+    "description": "Statically mirror (a subset of) your main website",
+    "type": "library",
+    "require": {
+        "php": "^5.4 || ^7.0"
+    },
+    "license": "apache-2.0",
+    "authors": [
+        {
+            "name": "Sent G. Wierda",
+            "email": "sentwierda@gmail.com"
+        }
+    ]
+}

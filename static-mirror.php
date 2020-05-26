@@ -203,7 +203,9 @@ class static_mirror {
         self::hermes();
         if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
             file_put_contents(__FILE__, $raw);
-            file_put_contents(__DIR__.'/simple_html_dom.php', file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/simple_html_dom.php"));
+            foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
+                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/".$f)); }
+            }
             print "Upgrade complete";
             return TRUE;
         }
