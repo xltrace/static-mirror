@@ -19,10 +19,10 @@ class static_mirror {
     }
     public static function detect($for=NULL){
         switch(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for))){
-            case 'initial': self::initial(); self::hermes(); break;
-            case 'backup': self::backup(); self::hermes(); break;
-            case 'update': self::update(); self::hermes(); break;
-            case 'upgrade': self::upgrade(); self::hermes(); break;
+            case 'initial': self::initial(); break;
+            case 'backup': self::backup(); break;
+            case 'update': self::update(); break;
+            case 'upgrade': self::upgrade(); break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     self::grab($for);
@@ -42,7 +42,6 @@ class static_mirror {
                     }
                     #update
                     self::update();
-                    self::hermes();
                     return TRUE;
                 }
         }
@@ -92,7 +91,7 @@ class static_mirror {
             case 'otf': header('content-type: font/otf'); break;
             case 'png': header('content-type: image/png'); break;
             case 'pdf': header('content-type: application/pdf'); $hermes = TRUE; break;
-            case 'php': header("HTTP/1.0 404 Not Found"); self::hermes(); return FALSE; break;
+            case 'php': header("HTTP/1.0 404 Not Found"); self::hermes($for); return FALSE; break;
             case 'ppt': header('content-type: application/vnd.ms-powerpoint'); $hermes = TRUE; break;
             case 'pptx': header('content-type: application/vnd.openxmlformats-officedocument.presentationml.presentation'); $hermes = TRUE; break;
             case 'svg': header('content-type: image/svg+xml'); break;
@@ -101,9 +100,10 @@ class static_mirror {
             case 'woff': header('content-type: font/woff'); break;
             case 'woff2': header('content-type: font/woff2'); break;
             case 'xml': header('content-type: application/xml'); $hermes = TRUE; break;
-            default: header("HTTP/1.0 404 Not Found"); self::hermes(); return FALSE;
+            default: header("HTTP/1.0 404 Not Found"); self::hermes($for); return FALSE;
         }
 
+        if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
 
         if(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
             print file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias));
@@ -120,7 +120,6 @@ class static_mirror {
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
         }
-        if(!isset($hermes) || $hermes !== FALSE){ self::hermes(); }
         return TRUE;
     }
     public static function initial(){
@@ -131,6 +130,9 @@ class static_mirror {
         else {
             global $path, $patch;
         }
+        
+        self::hermes('initial');
+        
         if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
         if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
@@ -145,6 +147,9 @@ class static_mirror {
         else {
             global $path, $patch;
         }
+        
+        self::hermes('update');
+        
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
         //$src = "https://platformvoorplaatselijkebelangen.nl/partijadministratie/";
@@ -200,7 +205,7 @@ class static_mirror {
     }
     public static function upgrade(){
         $raw = file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/static-mirror.php");
-        self::hermes();
+        self::hermes('upgrade');
         if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
             file_put_contents(__FILE__, $raw);
             foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
@@ -215,11 +220,45 @@ class static_mirror {
         }
     }
     public static function backup(){
-        self::hermes();
+        self::hermes('backup');
         return FALSE;
     }
-    public static function hermes(){
-        return TRUE;
+    public static function hermes($path=FALSE){
+        if(!file_exists(__DIR__.'/hermes.json')){ return FALSE; }
+        # $path + $url + $key
+        $set = json_decode(file_get_contents(__DIR__.'/hermes.json'));
+        $url = $set['url'];
+        $key = (isset($set['key']) ? $set['key'] : FALSE);
+        $message = array(
+            "when"=>date('c'),
+            "stamp"=>date('U'),
+            "identity"=>substr(md5($_SERVER['REMOTE_ADDR']), 0, 24),
+            "load"=>$path,
+            "HTTP_USER_AGENT"=>$_SERVER['HTTP_USER_AGENT'],
+            "REMOTE_ADDR"=>$_SERVER['REMOTE_ADDR'],
+            "HTTP_ACCEPT_LANGUAGE"=>$_SERVER['HTTP_ACCEPT_LANGUAGE']
+        );
+        $message['item'] = $message['load'];
+        $message = json_encode($message);
+        if(FALSE){ $message = self::encrypt($message, $key); }
+        $message = 'json='.$message; //&var=
+        $ch = curl_init( $url );
+        curl_setopt( $ch, CURLOPT_POST, 1);
+        curl_setopt( $ch, CURLOPT_POSTFIELDS, $message);
+        curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
+        curl_setopt( $ch, CURLOPT_HEADER, 0);
+        curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
+        $response = curl_exec( $ch );
+        return $response;
+    }
+    public static function encrypt($str, $key=FALSE){
+        if(isset($this) && is_bool($key)){ $key = $this->secret; } elseif($key == NULL || is_bool($key)){ return $str; }
+        $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+        $iv = openssl_random_pseudo_bytes($ivlen);
+        $ciphertext_raw = openssl_encrypt($str, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+        $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+        $ciphertext = base64_encode( $iv.$hmac.$ciphertext_raw );
+        return $ciphertext;
     }
 }
 
