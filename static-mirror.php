@@ -116,6 +116,7 @@ class static_mirror {
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
+            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); return FALSE; }
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
@@ -226,7 +227,7 @@ class static_mirror {
     public static function hermes($path=FALSE){
         if(!file_exists(__DIR__.'/hermes.json')){ return FALSE; }
         # $path + $url + $key
-        $set = json_decode(file_get_contents(__DIR__.'/hermes.json'));
+        $set = json_decode(file_get_contents(__DIR__.'/hermes.json'), TRUE);
         $url = $set['url'];
         $key = (isset($set['key']) ? $set['key'] : FALSE);
         $message = array(
@@ -240,7 +241,7 @@ class static_mirror {
         );
         $message['item'] = $message['load'];
         $message = json_encode($message);
-        if(FALSE){ $message = self::encrypt($message, $key); }
+        if($key !== FALSE){ $message = self::encrypt($message, $key); }
         $message = 'json='.$message; //&var=
         $ch = curl_init( $url );
         curl_setopt( $ch, CURLOPT_POST, 1);
