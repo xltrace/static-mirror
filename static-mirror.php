@@ -266,8 +266,53 @@ class static_mirror {
         self::encapsule($html, TRUE);
         return FALSE;
     }
+    public static function get_size($path=__DIR__, $recursive=FALSE){
+        $size = 0;
+        $list = scandir($path);
+        foreach($list as $i=>$f){
+          if(!preg_match('#^[\.]{1,2}$#', $f)){
+            if(is_dir($path.$f)){
+              if($recursive !== FALSE){ $size += self::get_size($path.$f.'/', $recursive); }
+            }
+            else {
+              $size += filesize($path.$f);
+            }
+          }
+        }
+        return $size;
+    }
+    public static function count_pages($path=FALSE, $ext=FALSE, $sitemap=FALSE){
+        if($path === FALSE){ $path = __DIR__.'/cache/';}
+        $c = 0; $s = array();
+        $list = scandir($path);
+        foreach($list as $i=>$f){
+          if(!preg_match('#^[\.]{1,2}$#', $f)){
+            if(!is_array($ext)){ $c++; $s[] = $f; }
+            elseif(preg_match('#[\.]('.implode('|',$ext).')$#', $f)){ $c++; $s[] = $f; }
+          }
+        }
+        return ($sitemap === FALSE ? $c : $s);
+    }
     public static function status_json(){
-        $stat = array('mirror-mod'=>filemtime(__DIR__.'/cache/index.html'),'sys-mod'=>filemtime(__DIR__.'/static-mirror.php'));
+        $stat = array('cache-mod-upoch'=>@filemtime(__DIR__.'/cache/index.html'),'system-mod-upoch'=>filemtime(__DIR__.'/static-mirror.php'));
+        $stat['cache-mod'] = date('c', $stat['cache-mod-upoch']);
+        $stat['system-mod'] = date('c', $stat['system-mod-upoch']);
+        $stat['cache-size'] = self::get_size(__DIR__.'/cache/', TRUE);
+        $stat['patch-size'] = self::get_size(__DIR__.'/patch/', TRUE);
+        $stat['size'] = self::get_size(__DIR__.'/', TRUE);
+        $stat['system-size'] = filesize(__DIR__.'/static-mirror.php');
+        $stat['system-fingerprint'] = md5(__DIR__.'/static-mirror.php');
+        $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
+        $stat['htaccess-fingerprint'] = md5(__DIR__.'/.htaccess');
+        $stat['hermes'] = file_exists(self::hermes_file());
+        $stat['configured'] = file_exists(self::static_mirror_file());
+        $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
+        $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
+        $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
+        $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
+        $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
+        $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
+        ksort($stat);
         print json_encode($stat); exit;
         return FALSE;
     }
