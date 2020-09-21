@@ -34,6 +34,7 @@ class static_mirror {
             case 'configure': self::configure(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
+            case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     self::grab($for);
@@ -263,6 +264,11 @@ class static_mirror {
         $html = "Error 404: Page not found.";
         if($for != NULL){ $html .= "\n\n".$for." is missing."; }
         self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function status_json(){
+        $stat = array('mirror-mod'=>filemtime(__DIR__.'/cache/index.html'),'sys-mod'=>filemtime(__DIR__.'/static-mirror.php'));
+        print json_encode($stat); exit;
         return FALSE;
     }
     public static function configure(){
