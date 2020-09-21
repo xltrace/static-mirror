@@ -301,9 +301,9 @@ class static_mirror {
         $stat['patch-size'] = self::get_size(__DIR__.'/patch/', TRUE);
         $stat['size'] = self::get_size(__DIR__.'/', TRUE);
         $stat['system-size'] = filesize(__DIR__.'/static-mirror.php');
-        $stat['system-fingerprint'] = md5(__DIR__.'/static-mirror.php');
+        $stat['system-fingerprint'] = md5_file(__DIR__.'/static-mirror.php');
         $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
-        $stat['htaccess-fingerprint'] = md5(__DIR__.'/.htaccess');
+        $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
         $stat['hermes'] = file_exists(self::hermes_file());
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
