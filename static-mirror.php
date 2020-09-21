@@ -23,6 +23,9 @@ class static_mirror {
             case 'backup': self::backup(); break;
             case 'update': self::update(); break;
             case 'upgrade': self::upgrade(); break;
+            case 'signin': case 'authenticate': case 'login': self::signin(); break;
+            case 'signoff': self::signoff(); break;
+            case 'configure': self::configure(); break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     self::grab($for);
@@ -57,7 +60,7 @@ class static_mirror {
         }
         #gather
         #$for = $_GET['for'];
-        
+
         $hermes = FALSE;
 
         /*fix*/ if(preg_match('#[\?]#', $for)){ $for = substr($for, 0, strpos($for, '?')); }
@@ -100,7 +103,7 @@ class static_mirror {
             case 'woff': header('content-type: font/woff'); break;
             case 'woff2': header('content-type: font/woff2'); break;
             case 'xml': header('content-type: application/xml'); $hermes = TRUE; break;
-            default: header("HTTP/1.0 404 Not Found"); self::hermes($for); return FALSE;
+            default: header("HTTP/1.0 404 Not Found"); self::hermes($for); self::notfound($for); return FALSE;
         }
 
         if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
@@ -131,9 +134,9 @@ class static_mirror {
         else {
             global $path, $patch;
         }
-        
+
         self::hermes('initial');
-        
+
         if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
         if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
@@ -148,9 +151,9 @@ class static_mirror {
         else {
             global $path, $patch;
         }
-        
+
         self::hermes('update');
-        
+
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
         //$src = "https://platformvoorplaatselijkebelangen.nl/partijadministratie/";
@@ -224,6 +227,23 @@ class static_mirror {
         self::hermes('backup');
         return FALSE;
     }
+    public static function signin(){
+        print "We will provide an authentication form. You can insert your authentication-token.";
+        return FALSE;
+    }
+    public static function signoff(){
+        print "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
+        return FALSE;
+    }
+    public static function notfound($for=NULL){
+        print "Error 404: Page not found.";
+        if($for != NULL){ print "\n\n".$for." is missing."; }
+        return FALSE;
+    }
+    public static function configure(){
+        print "Configure Static-Mirror";
+        return FALSE;
+    }
     public static function hermes($path=FALSE){
         if(!file_exists(__DIR__.'/hermes.json')){ return FALSE; }
         # $path + $url + $key
@@ -263,6 +283,6 @@ class static_mirror {
     }
 }
 
-
+/*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
 \XLtrace\static_mirror::detect($_GET['for']);
 ?>
