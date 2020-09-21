@@ -4,3 +4,5 @@
 composer.phar
 composer.lock
 hermes.json
+static-mirror.json
+.htaccess

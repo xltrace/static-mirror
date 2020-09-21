@@ -13,6 +13,12 @@ if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
 class static_mirror {
     var $path;
     var $patch;
+
+    public static function static_mirror_file(){ return __DIR__.'/static-mirror.json'; }
+    public static function hermes_file(){ return __DIR__.'/hermes.json'; }
+    public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
+    public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
+
     function __construct($path, $patch=FALSE){
         $this->path = $path;
         $this->patch = ($patch === FALSE ? $this->path : $patch);
@@ -26,6 +32,8 @@ class static_mirror {
             case 'signin': case 'authenticate': case 'login': self::signin(); break;
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
+            case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::static_mirror_file()):
+                header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     self::grab($for);
@@ -156,7 +164,6 @@ class static_mirror {
 
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
-        //$src = "https://platformvoorplaatselijkebelangen.nl/partijadministratie/";
         $conf = json_decode(file_get_contents(__DIR__.'/static-mirror.json'), TRUE);
         $src = reset($conf);
 
@@ -208,18 +215,20 @@ class static_mirror {
         return $raw;
     }
     public static function upgrade(){
-        $raw = file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/static-mirror.php");
+        $raw = file_get_contents(self::raw_git_path()."static-mirror.php");
         self::hermes('upgrade');
         if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
             file_put_contents(__FILE__, $raw);
             foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
-                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents("https://raw.githubusercontent.com/xltrace/static-mirror/master/".$f)); }
+                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents(self::raw_git_path().$f)); }
             }
-            print "Upgrade complete";
+            $html = "Upgrade complete";
+            self::encapsule($html, TRUE);
             return TRUE;
         }
         else {
-            print "Upgrade failed, try again!";
+            $html = "Upgrade failed, try again!";
+            self::encapsule($html, TRUE);
             return FALSE;
         }
     }
@@ -227,28 +236,63 @@ class static_mirror {
         self::hermes('backup');
         return FALSE;
     }
+    public static function authenticated(){
+        if(!file_exists(self::hermes_file())){ return FALSE; }
+        $json = json_decode(file_get_contents(self::hermes_file()), TRUE);
+        session_start();
+        if(isset($_POST['token']) && $_POST['token'] == $json['key']){
+            $_SESSION['token'] = $_POST['token'];
+            return TRUE;
+        }
+        if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
+        return FALSE;
+    }
     public static function signin(){
-        print "We will provide an authentication form. You can insert your authentication-token.";
+        $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
+        self::encapsule($html, TRUE);
         return FALSE;
     }
     public static function signoff(){
-        print "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
+        self::authenticated();
+        unset($_SESSION['token']);
+        $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
+        self::encapsule($html, TRUE);
         return FALSE;
     }
     public static function notfound($for=NULL){
-        print "Error 404: Page not found.";
-        if($for != NULL){ print "\n\n".$for." is missing."; }
+        $html = "Error 404: Page not found.";
+        if($for != NULL){ $html .= "\n\n".$for." is missing."; }
+        self::encapsule($html, TRUE);
         return FALSE;
     }
     public static function configure(){
-        print "Configure Static-Mirror";
+        if(!file_exists(self::hermes_file())){
+            if(isset($_POST['key'])){
+              file_put_contents(self::hermes_file(), json_encode($_POST));
+              self::initial();
+              return self::configure();
+            }
+            // show form to initialize hermes
+            return FALSE;
+        }
+        $success = self::authenticated(); // catch authenticated form data, so save token as cookie
+        if($success !== TRUE){ return self::signin(); }
+        $html = "Configure Static-Mirror";
+        self::encapsule($html, TRUE);
         return FALSE;
     }
+    public static function encapsule($content=NULL, $print=TRUE){
+        //encapsule when an cache/empty.html skin is available
+
+        if($print === TRUE){ print $content; exit; }
+        return $content;
+    }
     public static function hermes($path=FALSE){
-        if(!file_exists(__DIR__.'/hermes.json')){ return FALSE; }
+        if(!file_exists(self::hermes_file())){ return FALSE; }
+        if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ return FALSE; }
         # $path + $url + $key
-        $set = json_decode(file_get_contents(__DIR__.'/hermes.json'), TRUE);
-        $url = $set['url'];
+        $set = json_decode(file_get_contents(self::hermes_file()), TRUE);
+        $url = (isset($set['url']) ? $set['url'] : self::hermes_default_remote());
         $key = (isset($set['key']) ? $set['key'] : FALSE);
         $message = array(
             "when"=>date('c'),
