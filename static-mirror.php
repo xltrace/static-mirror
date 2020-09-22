@@ -8,6 +8,7 @@ error_reporting(E_ALL);
 $path = __DIR__.'/cache/';
 $patch = __DIR__.'/patch/';
 
+if(file_exists(__DIR__.'/vendor/autoload.php')){ require_once(__DIR__.'/vendor/autoload.php'); }
 if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
 
 class static_mirror {
@@ -312,7 +313,14 @@ class static_mirror {
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
+        $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
+        $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
+        $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
+        $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
+        $stat['slaves'] = 0; //future feature: get control of other static-mirrors to update/upgrade/backup from same configure/management
         ksort($stat);
+        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL|HTTP_HOST') as $i=>$s){ $stat[$s] = $_SERVER[$s]; }
+        //$stat = array_merge($stat, $_SERVER);
         print json_encode($stat); exit;
         return FALSE;
     }
