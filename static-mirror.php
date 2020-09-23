@@ -337,7 +337,17 @@ class static_mirror {
         }
         return FALSE;
     }
-    public static function current_URI(){ return self::build_url(array('scheme'=>(($_SERVER['REQUEST_SCHEME']=='https' || (string) $_SERVER['SERVER_PORT'] == '443' || $_SERVER['HTTPS']=='on' || substr($_SERVER['SCRIPT_URI'],0,5)=='https') ? 'https' : 'http'), 'host'=>$stat['HTTP_HOST'])); }
+    public static function current_URI(){
+      return self::build_url(array(
+        'scheme'=>((
+          (isset($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME']=='https') ||
+          (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] == '443') ||
+          (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') ||
+          (isset($_SERVER['SCRIPT_URI']) && substr($_SERVER['SCRIPT_URI'],0,5)=='https')
+        ) ? 'https' : 'http'),
+        'host'=>$_SERVER['HTTP_HOST'])
+      );
+    }
     public static function configure(){
         if(!file_exists(self::hermes_file())){
             if(isset($_POST['token'])){
@@ -407,8 +417,8 @@ class static_mirror {
         $url .= (isset($ar['scheme']) ? $ar['scheme'].'://' : NULL);
         if(isset($ar['user'])){ $url .= $ar['user'].(isset($ar['pass']) ? ':'.$ar['pass'] : NULL).'@'; }
         $url .= $ar['host'].(isset($ar['port']) ? ':'.$ar['port'] : NULL);
-        $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : NULL);
-        $url .= $ar['path'];
+        $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (isset($ar['path']) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : '/') : NULL);
+        $url .= (isset($ar['path']) ? $ar['path'] : NULL);
         $url .= (isset($ar['query']) ? '?'.$ar['query'] : NULL);
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
