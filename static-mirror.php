@@ -17,6 +17,7 @@ class static_mirror {
 
     public static function static_mirror_file(){ return __DIR__.'/static-mirror.json'; }
     public static function hermes_file(){ return __DIR__.'/hermes.json'; }
+    public static function slaves_file(){ return __DIR__.'/slaves.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
 
@@ -33,7 +34,7 @@ class static_mirror {
             case 'signin': case 'authenticate': case 'login': self::signin(); break;
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
-            case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::static_mirror_file()):
+            case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
             default:
@@ -163,6 +164,7 @@ class static_mirror {
         }
 
         self::hermes('update');
+        if(isset($_GET['all'])){ self::run_slaves('update'); }
 
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
@@ -219,6 +221,7 @@ class static_mirror {
     public static function upgrade(){
         $raw = file_get_contents(self::raw_git_path()."static-mirror.php");
         self::hermes('upgrade');
+        if(isset($_GET['all'])){ self::run_slaves('upgrade'); }
         if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
             file_put_contents(__FILE__, $raw);
             foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
@@ -236,6 +239,7 @@ class static_mirror {
     }
     public static function backup(){
         self::hermes('backup');
+        if(isset($_GET['all'])){ self::run_slaves('backup'); }
         return FALSE;
     }
     public static function authenticated(){
@@ -295,6 +299,8 @@ class static_mirror {
         return ($sitemap === FALSE ? $c : $s);
     }
     public static function status_json(){
+        $json = FALSE;
+        if(isset($_GET['all'])){ $json = self::run_slaves('status.json'); }
         $stat = array('cache-mod-upoch'=>@filemtime(__DIR__.'/cache/index.html'),'system-mod-upoch'=>filemtime(__DIR__.'/static-mirror.php'));
         $stat['cache-mod'] = date('c', $stat['cache-mod-upoch']);
         $stat['system-mod'] = date('c', $stat['system-mod-upoch']);
@@ -317,11 +323,17 @@ class static_mirror {
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
-        $stat['slaves'] = 0; //future feature: get control of other static-mirrors to update/upgrade/backup from same configure/management
+        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0); //future feature: get control of other static-mirrors to update/upgrade/backup from same configure/management
         ksort($stat);
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL|HTTP_HOST') as $i=>$s){ $stat[$s] = $_SERVER[$s]; }
         //$stat = array_merge($stat, $_SERVER);
-        print json_encode($stat); exit;
+        if($json !== FALSE){
+          $json[$stat['HTTP_HOST']] = $stat;
+          print json_encode($json); exit;
+        }
+        else{
+          print json_encode($stat); exit;
+        }
         return FALSE;
     }
     public static function configure(){
@@ -345,6 +357,43 @@ class static_mirror {
 
         if($print === TRUE){ print $content; exit; }
         return $content;
+    }
+    public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
+        if(!is_array($list) || count($list) == 0){
+            if(!file_exists(self::slaves_file())){ return FALSE; }
+            $list = json_decode(file_get_contents(self::slaves_file()), TRUE);
+        }
+        $bool = TRUE; $json = array();
+        foreach($list as $i=>$url){
+          $pu = parse_url($url);
+          if($pu !== FALSE && is_array($pu)){
+            switch(strtolower($action)){
+              case 'upgrade': case 'update':
+                $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').strtolower($action);
+                $buffer = file_get_contents(self::build_url($pu));
+                break;
+              case 'status': case 'status.json':
+                $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').'status.json';
+                $json[$url] = json_decode(file_get_contents(self::build_url($pu)), TRUE);
+                break;
+              default:
+                $bool = FALSE;
+            }
+          }
+        }
+        return (count($json) == 0 ? $bool : $json);
+    }
+    public static function build_url($ar=array()){
+        // $ar is assumed to be a valid result of parse_url()
+        $url = NULL;
+        $url .= (isset($ar['scheme']) ? $ar['scheme'].'://' : NULL);
+        if(isset($ar['user'])){ $url .= $ar['user'].(isset($ar['pass']) ? ':'.$ar['pass'] : NULL).'@'; }
+        $url .= $ar['host'].(isset($ar['port']) ? ':'.$ar['port'] : NULL);
+        $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : NULL);
+        $url .= $ar['path'];
+        $url .= (isset($ar['query']) ? '?'.$ar['query'] : NULL);
+        $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
+        return $url;
     }
     public static function hermes($path=FALSE){
         if(!file_exists(self::hermes_file())){ return FALSE; }
