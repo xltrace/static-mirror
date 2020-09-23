@@ -34,6 +34,7 @@ class static_mirror {
             case 'signin': case 'authenticate': case 'login': self::signin(); break;
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
+            case 'management': self::management(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
@@ -323,12 +324,12 @@ class static_mirror {
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
-        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0); //future feature: get control of other static-mirrors to update/upgrade/backup from same configure/management
+        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0);
         ksort($stat);
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL|HTTP_HOST') as $i=>$s){ $stat[$s] = $_SERVER[$s]; }
         //$stat = array_merge($stat, $_SERVER);
         if($json !== FALSE){
-          $json[$stat['HTTP_HOST']] = $stat;
+          $json[self::current_URI()] = $stat;
           print json_encode($json); exit;
         }
         else{
@@ -336,19 +337,36 @@ class static_mirror {
         }
         return FALSE;
     }
+    public static function current_URI(){ return self::build_url(array('scheme'=>(($_SERVER['REQUEST_SCHEME']=='https' || (string) $_SERVER['SERVER_PORT'] == '443' || $_SERVER['HTTPS']=='on' || substr($_SERVER['SCRIPT_URI'],0,5)=='https') ? 'https' : 'http'), 'host'=>$stat['HTTP_HOST'])); }
     public static function configure(){
         if(!file_exists(self::hermes_file())){
-            if(isset($_POST['key'])){
-              file_put_contents(self::hermes_file(), json_encode($_POST));
+            if(isset($_POST['token'])){
+              $data = array('key'=>$_POST['token']);
+              if(isset($_POST['url']) && (parse_url($_POST['url']) != FALSE)){ $data['url'] = $_POST['url']; }
+              file_put_contents(self::hermes_file(), str_replace('\/', '/', json_encode($data)));
               self::initial();
               return self::configure();
             }
-            // show form to initialize hermes
+            $html = '<form method="POST"><table><tr><td>Hermes remote:</td><td><input name="url" type="url" placeholder="'.self::hermes_default_remote().'" value="'.self::hermes_default_remote().'"/></td></tr><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Configure" /></td></tr></table></form>';
+            self::encapsule($html, TRUE);
             return FALSE;
         }
         $success = self::authenticated(); // catch authenticated form data, so save token as cookie
         if($success !== TRUE){ return self::signin(); }
         $html = "Configure Static-Mirror";
+        //edit static-mirror.json = { page: src, page: src } | where page="index.html"
+        //edit patch (before/after)
+        //edit patch (preg/html-dom)
+        self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function management(){
+        $success = self::authenticated();
+        if($success !== TRUE){ return self::signin(); }
+        $html = "Management module";
+        //edit slaves.json = [ url, url ]
+        //edit hermes.json = {"url": url, "key": key}
+        //actions: upgrade, update, backup
         self::encapsule($html, TRUE);
         return FALSE;
     }
@@ -434,7 +452,7 @@ class static_mirror {
         return $ciphertext;
     }
 }
-
+print_r($_SERVER);
 /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
 \XLtrace\static_mirror::detect($_GET['for']);
 ?>
