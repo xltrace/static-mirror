@@ -452,7 +452,7 @@ class static_mirror {
         return $ciphertext;
     }
 }
-print_r($_SERVER);
+
 /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
 \XLtrace\static_mirror::detect($_GET['for']);
 ?>
