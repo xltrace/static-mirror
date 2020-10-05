@@ -36,7 +36,7 @@ class static_mirror {
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
             case 'management': self::management(); break;
-            case '404': case 'hermes': case 'hermes.json': case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
+            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
             default:
@@ -67,13 +67,15 @@ class static_mirror {
         /*fix*/ if($path === NULL){ $path = $_SERVER['REQUEST_URI']; }
         /*fix*/ if(substr($path, 0,1) == '/'){ $path = substr($path, 1); }
 
-        $preg = '#^[\?](http[s]?|ftp)#';
+        $preg = '#^[\?]?(http[s]?|ftp)#';
 
         if(file_exists(self::alias_file())){
           $db = json_decode(file_get_contents(self::alias_file()), TRUE);
         } else { return FALSE; }
 
-        if(isset($db[strtolower($path)])){ $path = $db[strtolower($path)]; }
+        if(isset($db[strtolower($path)])){
+          $path = (isset($db['#']) && preg_match($preg, $db['#']) ? $db['#'].(in_array(substr($db['#'], -1), array('/','=','?',':','#','~') ) ? NULL : '/'): NULL).$db[strtolower($path)];
+        }
 
         if(preg_match($preg, $path)){ $url = substr($path, 1); }
         elseif(isset($db['*']) && preg_match($preg, $db['*'])){ $url = substr($db['*'], 1).(in_array(substr($db['*'], -1), array('/','=','?',':','#','~') ) ? NULL : '/').$path; }
@@ -341,6 +343,7 @@ class static_mirror {
         $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
         $stat['hermes'] = file_exists(self::hermes_file());
         $stat['configured'] = file_exists(self::static_mirror_file());
+        $stat['alias'] = file_exists(self::alias_file());
         $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
         $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
         $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
