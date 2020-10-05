@@ -80,6 +80,7 @@ class static_mirror {
         else{ return FALSE; }
 
         if($force !== FALSE){
+          if(!isset($hermes) || $hermes !== FALSE){ self::hermes($path); }
           /*REDIRECTING*/
           header("HTTP/1.1 301 Moved Permanently");
           header("Location: ".$url);
