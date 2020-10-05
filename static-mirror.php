@@ -17,6 +17,7 @@ class static_mirror {
 
     public static function static_mirror_file(){ return __DIR__.'/static-mirror.json'; }
     public static function hermes_file(){ return __DIR__.'/hermes.json'; }
+    public static function alias_file(){ return __DIR__.'/alias.json'; }
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
@@ -40,7 +41,7 @@ class static_mirror {
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
-                    self::grab($for);
+                    if(!self::alias($for, TRUE)){ self::grab($for); }
                     return TRUE;
                 }
                 else{
@@ -61,6 +62,31 @@ class static_mirror {
                 }
         }
         return TRUE;
+    }
+    public static function alias($path=NULL, $force=FALSE){
+        /*fix*/ if($path === NULL){ $path = $_SERVER['REQUEST_URI']; }
+        /*fix*/ if(substr($path, 0,1) == '/'){ $path = substr($path, 1); }
+
+        $preg = '#^[\?](http[s]?|ftp)#';
+
+        if(file_exists(self::alias_file())){
+          $db = json_decode(file_get_contents(self::alias_file()), TRUE);
+        } else { return FALSE; }
+
+        if(isset($db[strtolower($path)])){ $path = $db[strtolower($path)]; }
+
+        if(preg_match($preg, $path)){ $url = substr($path, 1); }
+        elseif(isset($db['*']) && preg_match($preg, $db['*'])){ $url = substr($db['*'], 1).(in_array(substr($db['*'], -1), array('/','=','?',':','#','~') ) ? NULL : '/').$path; }
+        else{ return FALSE; }
+
+        if($force !== FALSE){
+          /*REDIRECTING*/
+          header("HTTP/1.1 301 Moved Permanently");
+          header("Location: ".$url);
+          print '<html>You will be redirected to <a href="'.$url.'">'.$url.'</a>.</html>';
+          exit;
+        }
+        return $url;
     }
     public static function grab($for){
         if(isset($this)){

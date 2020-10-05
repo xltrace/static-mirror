@@ -3,6 +3,7 @@
 /vendor/
 composer.phar
 composer.lock
+alias.json
 hermes.json
 slaves.json
 static-mirror.json
