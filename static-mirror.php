@@ -8,6 +8,8 @@ error_reporting(E_ALL);
 $path = __DIR__.'/cache/';
 $patch = __DIR__.'/patch/';
 
+if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'settings.php'); }
+
 if(file_exists(__DIR__.'/vendor/autoload.php')){ require_once(__DIR__.'/vendor/autoload.php'); }
 if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
 
@@ -36,6 +38,7 @@ class static_mirror {
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
             case 'management': self::management(); break;
+            case 'duplicate': self::duplicate(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
@@ -410,6 +413,57 @@ class static_mirror {
         //edit hermes.json = {"url": url, "key": key}
         //actions: upgrade, update, backup
         self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function duplicate(){
+        $error = array();
+        $success = self::authenticated();
+        if($success !== TRUE){ return self::signin(); }
+        $html = "Duplication Module";
+        //edit slaves.json = [ url, url ]
+        if(isset($_POST['path'])){ //duplicate static-mirror.php to $path
+          $up = (defined('STATIC_MIRROR_DIRECTORY_UP') && is_int(STATIC_MIRROR_DIRECTORY_UP) ? STATIC_MIRROR_DIRECTORY_UP : 0);
+          $chroot = ($up >= 1 ? dirname(__DIR__, $up) : __DIR__);
+          /*fix*/ if(substr($chroot, -1) == '/'){ $chroot = substr($chroot, 0, -1); }
+          $path = $_POST['path'];
+          /*fix*/ if(substr($path, 0, 1) !== '/'){ $path = '/'.$path; }
+          if(preg_match('#[\.]{2}#', $path)){ $error[] = $path.' could possibly go outside the chroot and is deemed invalid.'; }
+          else{
+            $map = $chroot.$path.(substr($path, -1) != '/' ? '/' : NULL);
+            if(file_exists($map) && is_dir($map)){ @file_put_contents($map.basename(__FILE__), file_get_contents(__FILE__)); }
+            else{ $error[] = $map.' does not exist.';}
+          }
+        }
+        if(isset($_POST['slave'])){ //add slave
+            $ns = $_POST['slave'];
+            if(parse_url($ns) !== FALSE && strlen($ns) > 5){
+              if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
+                file_get_contents($ns.'?for=initial');
+              }
+              $slaves = json_decode(file_get_contents(self::slaves_file()), TRUE);
+              /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
+              if(!in_array($ns, $slaves)){
+                if(self::url_is_valid_status_json($ns)){
+                  $slaves[] = $ns;
+                  file_put_contents(self::slaves_file(), json_encode($slaves));
+                } else { $error[] = $ns.' is not (yet) a valid static-mirror'; }
+              }
+              else { $error[] = $ns.' is already a slave'; }
+            }
+            else{ $error[] = $ns.' is not a valid url'; }
+        }
+        $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($notes, TRUE) : NULL);
+        $html = $debug.'<form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
+        self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function url_is_valid_status_json($url){
+        if(parse_url($url) == FALSE || strlen($url) < 5){ return FALSE; }
+        /*fix*/ if(substr($url, -1) == '/'){ $url = $url.'status.json'; }
+        $raw = file_get_contents($url);
+        if(strlen($raw) < 4){ return FALSE; }
+        $json = json_decode($raw, TRUE);
+        if(isset($json['system-fingerprint']) && strlen($json['system-fingerprint']) == 32){ return TRUE; }
         return FALSE;
     }
     public static function encapsule($content=NULL, $print=TRUE){
