@@ -8,7 +8,7 @@ error_reporting(E_ALL);
 $path = __DIR__.'/cache/';
 $patch = __DIR__.'/patch/';
 
-if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'settings.php'); }
+if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
 
 if(file_exists(__DIR__.'/vendor/autoload.php')){ require_once(__DIR__.'/vendor/autoload.php'); }
 if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
