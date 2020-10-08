@@ -81,6 +81,8 @@ class static_mirror {
         elseif(isset($db['*']) && preg_match($preg, $db['*'])){ $url = substr($db['*'], 1).(in_array(substr($db['*'], -1), array('/','=','?',':','#','~') ) ? NULL : '/').$path; }
         else{ return FALSE; }
 
+        /*fix*/ if(preg_match("#^(.*)index\.html$#", $url, $buffer)){ $url = $buffer[1]; }
+
         if($force !== FALSE){
           if(!isset($hermes) || $hermes !== FALSE){ self::hermes($path); }
           /*REDIRECTING*/
