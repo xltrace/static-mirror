@@ -438,7 +438,7 @@ class static_mirror {
             $ns = $_POST['slave'];
             if(parse_url($ns) !== FALSE && strlen($ns) > 5){
               if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
-                file_get_contents($ns.'?for=initial');
+                file_get_contents($ns.'static-mirror.php?for=initial');
               }
               $slaves = json_decode(file_get_contents(self::slaves_file()), TRUE);
               /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
