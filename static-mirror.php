@@ -435,7 +435,12 @@ class static_mirror {
           if(preg_match('#[\.]{2}#', $path)){ $error[] = $path.' could possibly go outside the chroot and is deemed invalid.'; }
           else{
             $map = $chroot.$path.(substr($path, -1) != '/' ? '/' : NULL);
-            if(file_exists($map) && is_dir($map)){ @file_put_contents($map.basename(__FILE__), file_get_contents(__FILE__)); }
+            if(file_exists($map) && is_dir($map)){
+              @file_put_contents($map.basename(__FILE__), file_get_contents(__FILE__));
+              if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
+                @file_put_contents($map.basename(self::hermes_file()), file_get_contents(self::hermes_file()));
+              }
+            }
             else{ $error[] = $map.' does not exist.';}
           }
         }
