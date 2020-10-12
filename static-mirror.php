@@ -360,8 +360,8 @@ class static_mirror {
         $stat['alias'] = file_exists(self::alias_file());
         if($stat['alias'] === TRUE){
           $alias = json_decode(file_get_contents(self::alias_file()), TRUE);
-          if(isset($alias['#'])){ $stat['alias-domain'] = $alias['#']; }
-          if(isset($alias['*'])){ $stat['alias-domain'] = $alias['*']; }
+          if(isset($alias['#'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['#']); }
+          if(isset($alias['*'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['*']); }
           $stat['alias-count'] = count($alias);
           $stat['alias-mod-upoch'] = @filemtime(self::alias_file());
           $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
