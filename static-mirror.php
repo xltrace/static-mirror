@@ -189,7 +189,7 @@ class static_mirror {
         if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
         if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
-        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
+        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', self::json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
         return TRUE;
     }
     public static function update(){
@@ -283,7 +283,7 @@ class static_mirror {
     public static function authenticated(){
         if(!file_exists(self::hermes_file())){ return FALSE; }
         $json = json_decode(file_get_contents(self::hermes_file()), TRUE);
-        session_start();
+        @session_start();
         if(isset($_POST['token']) && $_POST['token'] == $json['key']){
             $_SESSION['token'] = $_POST['token'];
             return TRUE;
@@ -351,9 +351,22 @@ class static_mirror {
         $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
         $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
         $stat['hermes'] = file_exists(self::hermes_file());
+        if($stat['hermes'] === TRUE){
+          $hermes = json_decode(file_get_contents(self::hermes_file()), TRUE);
+          $stat['hermes-remote'] = $hermes['url'];
+        }
         $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['alias'] = file_exists(self::alias_file());
+        if($stat['alias'] === TRUE){
+          $alias = json_decode(file_get_contents(self::alias_file()), TRUE);
+          if(isset($alias['#'])){ $stat['alias-domain'] = $alias['#']; }
+          if(isset($alias['*'])){ $stat['alias-domain'] = $alias['*']; }
+          $stat['alias-count'] = count($alias);
+          $stat['alias-mod-upoch'] = @filemtime(self::alias_file());
+          $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
+          $stat['alias-fingerprint'] = md5_file(self::alias_file());
+        }
         $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
         $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
         $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
@@ -361,19 +374,22 @@ class static_mirror {
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
         $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
+        $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0);
         ksort($stat);
+        $stat['URI'] = self::current_URI();
+        $stat['JSONplus'] = (class_exists('JSONplus'));
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL|HTTP_HOST') as $i=>$s){ $stat[$s] = $_SERVER[$s]; }
         //$stat = array_merge($stat, $_SERVER);
         if($json !== FALSE){
           $json[self::current_URI()] = $stat;
-          print json_encode($json); exit;
+          print self::json_encode($json); exit;
         }
         else{
-          print json_encode($stat); exit;
+          print self::json_encode($stat); exit;
         }
         return FALSE;
     }
@@ -393,7 +409,7 @@ class static_mirror {
             if(isset($_POST['token'])){
               $data = array('key'=>$_POST['token']);
               if(isset($_POST['url']) && (parse_url($_POST['url']) != FALSE)){ $data['url'] = $_POST['url']; }
-              file_put_contents(self::hermes_file(), str_replace('\/', '/', json_encode($data)));
+              file_put_contents(self::hermes_file(), str_replace('\/', '/', self::json_encode($data)));
               self::initial();
               return self::configure();
             }
@@ -413,12 +429,38 @@ class static_mirror {
     public static function management(){
         $success = self::authenticated();
         if($success !== TRUE){ return self::signin(); }
-        $html = "Management module";
+        $html = "<h2>Management module</h2>";
         //edit slaves.json = [ url, url ]
         //edit hermes.json = {"url": url, "key": key}
         //actions: upgrade, update, backup
+        print $html; $html = NULL;
+        foreach(array('toc','duplicate','decrypt_module') as $i=>$el){
+          print self::$el();
+        }
         self::encapsule($html, TRUE);
         return FALSE;
+    }
+    public static function toc($as_html=TRUE){
+        $list = array(
+          'update'=>'Update cache',
+          'status.json' => 'status.json',
+          '#1' => 'Administrator',
+          'configure' => 'Configuration',
+          'management' => 'Management Module',
+          'upgrade'=>'Upgrade static-mirror',
+          'duplicate' => 'Duplication Module'
+        );
+        $html = NULL;
+        if($as_html === TRUE){
+          foreach($list as $key=>$name){
+            switch(substr($key, 0, 1)){
+              case '#': $html .= '<li>'.$name.'</li>'; break;
+              default: $html .= '<li><a href="'.$key.'">'.$name.'</a></li>';
+            }
+          }
+          $html = '<ul>'.$html.'</ul>';
+        }
+        return ($as_html === TRUE ? $html : $list);
     }
     public static function duplicate(){
         $error = array();
@@ -455,7 +497,7 @@ class static_mirror {
               if(!in_array($ns, $slaves)){
                 if(self::url_is_valid_status_json($ns)){
                   $slaves[] = $ns;
-                  file_put_contents(self::slaves_file(), json_encode($slaves));
+                  file_put_contents(self::slaves_file(), self::json_encode($slaves));
                 } else { $error[] = $ns.' is not (yet) a valid static-mirror'; }
               }
               else { $error[] = $ns.' is already a slave'; }
@@ -463,7 +505,7 @@ class static_mirror {
             else{ $error[] = $ns.' is not a valid url'; }
         }
         $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($notes, TRUE) : NULL);
-        $html = $debug.'<form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><label><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</label></td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
+        $html = $debug.'<form method="POST" action="duplicate"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><label><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</label></td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
         self::encapsule($html, TRUE);
         return FALSE;
     }
@@ -480,7 +522,7 @@ class static_mirror {
           $result = self::decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
         }
         $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($result, TRUE) : NULL);
-        $html = '<pre>'.$debug.'</pre><form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table>';
+        $html = '<pre>'.$debug.'</pre><form method="POST" action="decrypt"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table></form>';
         self::encapsule($html, TRUE);
         return FALSE;
     }
@@ -500,7 +542,9 @@ class static_mirror {
     public static function encapsule($content=NULL, $print=TRUE){
         //encapsule when an cache/empty.html skin is available
 
-        if($print === TRUE){ print $content; exit; }
+        // $content = ''.$content.'';
+
+        if($print === TRUE){ print $content; /*exit;*/ }
         return $content;
     }
     public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
@@ -632,6 +676,9 @@ class static_mirror {
         return $original_plaintext."\n";
       }
       return FALSE;
+    }
+    public static function json_encode($value, $options=0, $depth=512){
+      return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
     }
 }
 
