@@ -353,7 +353,7 @@ class static_mirror {
         $stat['hermes'] = file_exists(self::hermes_file());
         if($stat['hermes'] === TRUE){
           $hermes = json_decode(file_get_contents(self::hermes_file()), TRUE);
-          $stat['hermes-remote'] = $hermes['url'];
+          $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
         }
         $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['configured'] = file_exists(self::static_mirror_file());
