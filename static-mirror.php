@@ -23,6 +23,7 @@ class static_mirror {
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
+    public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
 
     function __construct($path, $patch=FALSE){
         $this->path = $path;
@@ -39,6 +40,8 @@ class static_mirror {
             case 'configure': self::configure(); break;
             case 'management': self::management(); break;
             case 'duplicate': self::duplicate(); break;
+            case 'decrypt': self::decrypt_module(); break;
+            case 'hit': self::hermes_hit(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
@@ -163,9 +166,9 @@ class static_mirror {
         else {
             $conf = json_decode(file_get_contents(__DIR__.'/static-mirror.json'), TRUE);
             $src = reset($conf);
-            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); return FALSE; }
+            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
-            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); return FALSE; }
+            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
@@ -340,6 +343,7 @@ class static_mirror {
         $stat['cache-mod'] = date('c', $stat['cache-mod-upoch']);
         $stat['system-mod'] = date('c', $stat['system-mod-upoch']);
         $stat['cache-size'] = self::get_size(__DIR__.'/cache/', TRUE);
+        $stat['cache'] = ($stat['cache-mod-upoch'] == FALSE ? FALSE : TRUE);
         $stat['patch-size'] = self::get_size(__DIR__.'/patch/', TRUE);
         $stat['size'] = self::get_size(__DIR__.'/', TRUE);
         $stat['system-size'] = filesize(__DIR__.'/static-mirror.php');
@@ -347,6 +351,7 @@ class static_mirror {
         $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
         $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
         $stat['hermes'] = file_exists(self::hermes_file());
+        $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['alias'] = file_exists(self::alias_file());
         $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
@@ -453,8 +458,29 @@ class static_mirror {
             else{ $error[] = $ns.' is not a valid url'; }
         }
         $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($notes, TRUE) : NULL);
-        $html = $debug.'<form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
+        $html = $debug.'<form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><label><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</label></td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
         self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function decrypt_module(){
+        $error = array();
+        $success = self::authenticated();
+        if($success !== TRUE){ return self::signin(); }
+        $html = "Decrypt Module";
+        //edit slaves.json = [ url, url ]
+        $result = NULL;
+        if(isset($_POST['raw'])){ //duplicate static-mirror.php to $path
+          $json = json_decode(file_get_contents(self::hermes_file()), TRUE);
+          $tokens = (isset($_POST['tokens']) && strlen($_POST['tokens'])>0 ? $_POST['tokens'] : $json['key']);
+          $result = self::decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
+        }
+        $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($result, TRUE) : NULL);
+        $html = '<pre>'.$debug.'</pre><form method="POST"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table>';
+        self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function hermes_hit(){
+        self::encapsule(self::hermes('hit', TRUE), TRUE);
         return FALSE;
     }
     public static function url_is_valid_status_json($url){
@@ -509,9 +535,9 @@ class static_mirror {
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
     }
-    public static function hermes($path=FALSE){
+    public static function hermes($path=FALSE, $mode=FALSE){
         if(!file_exists(self::hermes_file())){ return FALSE; }
-        if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ return FALSE; }
+        if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
         # $path + $url + $key
         $set = json_decode(file_get_contents(self::hermes_file()), TRUE);
         $url = (isset($set['url']) ? $set['url'] : self::hermes_default_remote());
@@ -520,23 +546,26 @@ class static_mirror {
             "when"=>date('c'),
             "stamp"=>date('U'),
             "identity"=>substr(md5($_SERVER['REMOTE_ADDR']), 0, 24),
+            "HTTP_HOST"=>self::current_URI(),
             "load"=>$path,
             "HTTP_USER_AGENT"=>$_SERVER['HTTP_USER_AGENT'],
             "REMOTE_ADDR"=>$_SERVER['REMOTE_ADDR'],
             "HTTP_ACCEPT_LANGUAGE"=>$_SERVER['HTTP_ACCEPT_LANGUAGE']
         );
-        $message['item'] = $message['load'];
+        //$message['item'] = $message['load'];
         $message = json_encode($message);
         if($key !== FALSE){ $message = self::encrypt($message, $key); }
-        $message = 'json='.$message; //&var=
+        /*debug*/ print '<!-- HERMES: '.$message.' -->';
+        /*fix if curl not exists*/ if($mode === NULL){ return $message; }
+        $fm = 'json='.$message; //&var=
         $ch = curl_init( $url );
         curl_setopt( $ch, CURLOPT_POST, 1);
-        curl_setopt( $ch, CURLOPT_POSTFIELDS, $message);
+        curl_setopt( $ch, CURLOPT_POSTFIELDS, $fm);
         curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
         curl_setopt( $ch, CURLOPT_HEADER, 0);
         curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
         $response = curl_exec( $ch );
-        return $response;
+        return ($mode === FALSE ? $response : $message);
     }
     public static function encrypt($str, $key=FALSE){
         if(isset($this) && is_bool($key)){ $key = $this->secret; } elseif($key == NULL || is_bool($key)){ return $str; }
@@ -546,6 +575,58 @@ class static_mirror {
         $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
         $ciphertext = base64_encode( $iv.$hmac.$ciphertext_raw );
         return $ciphertext;
+    }
+    public static function decrypt($ciphertext, $key=FALSE){
+      if(isset($this) && is_bool($key)){
+        $key = $this->secret;
+      }
+      elseif(is_array($key)){
+        $awnser = FALSE;
+        foreach($key as $i=>$k){
+          $b = (isset($this) ? $this->decrypt($ciphertext, $k) : self::decrypt($ciphertext, $k) );
+          if($b !== FALSE){
+            $awnser = $b;
+            if(isset($this)){
+              $this->last = $k;
+              $this->hit = array_unique(array_merge($this->hit, array($k)));
+            } elseif(defined('JSONplus_KEY_LAST') && defined('JSONplus_KEY_HIT')) {
+              global ${JSONplus_KEY_LAST}, ${JSONplus_KEY_HIT};
+              ${JSONplus_KEY_LAST} = $k;
+              ${JSONplus_KEY_HIT} = array_unique(array_merge((is_array(${JSONplus_KEY_HIT}) ? ${JSONplus_KEY_HIT} : array()), array($k)));
+            }
+            return $awnser;
+          }
+        }
+        return $awnser;
+      }
+      //*debug*/ print_r(array('ciphertext'=>$ciphertext, 'key'=>$key));
+      //$cipher, $key
+      $c = base64_decode($ciphertext);
+      $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+      $iv = substr($c, 0, $ivlen);
+      if(strlen($iv) < $ivlen){ return FALSE; }
+      $hmac = substr($c, $ivlen, $sha2len=32);
+      $ciphertext_raw = substr($c, $ivlen+$sha2len);
+      $original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+      $calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+      if(FALSE && $ciphertext_raw){ print '<pre>'.str_replace(array('<','>'), array('&lt;','&gt;'), print_r(array(
+        'ciphertext'=>$ciphertext,
+        'c'=>$c,
+        'key'=>$key,
+        'cipher'=>$cipher,
+        'ivlen'=>$ivlen,
+        'iv'=>$iv,
+        'hmac'=>$hmac,
+        'sha2len'=>$sha2len,
+        'ciphertext_raw'=>$ciphertext_raw,
+        'options'=>$options,
+        'original_plaintext'=>$original_plaintext,
+        'calcmac'=>$calcmac
+      ), TRUE)).'</pre>'; }
+      if (hash_equals($hmac, $calcmac)){//PHP 5.6+ timing attack safe comparison
+        return $original_plaintext."\n";
+      }
+      return FALSE;
     }
 }
 
