@@ -79,7 +79,7 @@ class static_mirror {
         $preg = '#^[\?]?(http[s]?|ftp)#';
 
         if(file_exists(self::alias_file())){
-          $db = json_decode(file_get_contents(self::alias_file()), TRUE);
+          $db = self::file_get_json(self::alias_file());
         } else { return FALSE; }
 
         if(isset($db[strtolower($path)])){
@@ -167,7 +167,7 @@ class static_mirror {
             print file_get_contents($path.$alias);
         }
         else {
-            $conf = json_decode(file_get_contents(__DIR__.'/static-mirror.json'), TRUE);
+            $conf = self::file_get_json(__DIR__.'/static-mirror.json');
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
@@ -209,7 +209,7 @@ class static_mirror {
 
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
-        $conf = json_decode(file_get_contents(__DIR__.'/static-mirror.json'), TRUE);
+        $conf = self::file_get_json(__DIR__.'/static-mirror.json');
         $src = reset($conf);
 
         if(!is_array($conf) || strlen($src) < 1){ echo "No MIRROR configured."; return FALSE; }
@@ -285,7 +285,7 @@ class static_mirror {
     }
     public static function authenticated(){
         if(!file_exists(self::hermes_file())){ return FALSE; }
-        $json = json_decode(file_get_contents(self::hermes_file()), TRUE);
+        $json = self::file_get_json(self::hermes_file());
         @session_start();
         if(isset($_POST['token']) && $_POST['token'] == $json['key']){
             $_SESSION['token'] = $_POST['token'];
@@ -309,7 +309,7 @@ class static_mirror {
     //public static function process_requestaccess(){}
     public static function is_whitelisted($email=NULL){
       if(!file_exists(self::whitelist_file())){ return FALSE; }
-      $json = json_decode(file_get_contents(self::whitelist_file()), TRUE);
+      $json = self::file_get_json(self::whitelist_file());
       if(!is_array($json)){ return FALSE; }
       return (in_array($email, $json) ? TRUE : FALSE);
     }
@@ -330,7 +330,7 @@ class static_mirror {
         return FALSE;
       }
       $mode = NULL;
-      $set = json_decode(file_get_contents(self::hermes_file()), TRUE);
+      $set = self::file_get_json(self::hermes_file());
       $key = (isset($set['key']) ? $set['key'] : FALSE);
       if(isset($_POST['emailaddress'])){
         $mode = 'request';
@@ -410,13 +410,13 @@ class static_mirror {
         $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['hermes'] = (file_exists(self::hermes_file()) && $stat['curl']);
         if($stat['hermes'] === TRUE){
-          $hermes = json_decode(file_get_contents(self::hermes_file()), TRUE);
+          $hermes = self::file_get_json(self::hermes_file());
           $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
         }
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['alias'] = file_exists(self::alias_file());
         if($stat['alias'] === TRUE){
-          $alias = json_decode(file_get_contents(self::alias_file()), TRUE);
+          $alias = self::file_get_json(self::alias_file());
           if(isset($alias['#'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['#']); }
           if(isset($alias['*'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['*']); }
           $stat['alias-count'] = count($alias);
@@ -424,7 +424,7 @@ class static_mirror {
           $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
           $stat['alias-fingerprint'] = md5_file(self::alias_file());
         }
-        $stat['mirror'] = count(json_decode(file_get_contents(self::static_mirror_file()), TRUE));
+        $stat['mirror'] = count(self::file_get_json(self::static_mirror_file()));
         $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
         $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
@@ -432,12 +432,12 @@ class static_mirror {
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
         $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
         $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
-        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(json_decode(file_get_contents(self::whitelist_file()), TRUE)) : FALSE);
+        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
-        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0);
+        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file())) : 0);
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') && class_exists('simple_html_dom_node'));
         $stat['2ndFA'] = FALSE; /*placeholder*/
         ksort($stat);
@@ -568,7 +568,7 @@ class static_mirror {
               if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
                 file_get_contents($ns.'static-mirror.php?for=initial');
               }
-              $slaves = json_decode(file_get_contents(self::slaves_file()), TRUE);
+              $slaves = self::file_get_json(self::slaves_file());
               /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
               if(!in_array($ns, $slaves)){
                 if(self::url_is_valid_status_json($ns)){
@@ -593,7 +593,7 @@ class static_mirror {
         //edit slaves.json = [ url, url ]
         $result = NULL;
         if(isset($_POST['raw'])){ //duplicate static-mirror.php to $path
-          $json = json_decode(file_get_contents(self::hermes_file()), TRUE);
+          $json = self::file_get_json(self::hermes_file());
           $tokens = (isset($_POST['tokens']) && strlen($_POST['tokens'])>0 ? $_POST['tokens'] : $json['key']);
           $result = self::decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
         }
@@ -626,7 +626,7 @@ class static_mirror {
     public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
         if(!is_array($list) || count($list) == 0){
             if(!file_exists(self::slaves_file())){ return FALSE; }
-            $list = json_decode(file_get_contents(self::slaves_file()), TRUE);
+            $list = self::file_get_json(self::slaves_file());
         }
         $bool = TRUE; $json = array();
         foreach($list as $i=>$url){
@@ -639,7 +639,7 @@ class static_mirror {
                 break;
               case 'status': case 'status.json':
                 $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').'status.json';
-                $json[$url] = json_decode(file_get_contents(self::build_url($pu)), TRUE);
+                $json[$url] = self::file_get_json(self::build_url($pu));
                 break;
               default:
                 $bool = FALSE;
@@ -664,7 +664,7 @@ class static_mirror {
         if(!file_exists(self::hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
         # $path + $url + $key
-        $set = json_decode(file_get_contents(self::hermes_file()), TRUE);
+        $set = self::file_get_json(self::hermes_file());
         $url = (isset($set['url']) ? $set['url'] : self::hermes_default_remote());
         $key = (isset($set['key']) ? $set['key'] : FALSE);
         $message = array(
@@ -755,6 +755,23 @@ class static_mirror {
     }
     public static function json_encode($value, $options=0, $depth=512){
       return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
+    }
+    public static function file_get_json($file, $as_array=TRUE){
+      /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
+      if(is_array($file)){
+        $set = FALSE;
+        foreach($file as $i=>$f){
+          $buffer = self::file_get_json($f, $as_array);
+          if($buffer !== FALSE && ($as_array === TRUE ? is_array($buffer) : TRUE)){
+            $set = array_merge(($as_array !== TRUE ? array($buffer) : $buffer), (!is_array($set) ? array() : $set));
+          }
+        }
+        return $set;
+      }
+      if(!file_exists($file)){ return FALSE; }
+      $raw = file_get_contents($file);
+      $json = json_decode($raw, $as_array);
+      return $json;
     }
 }
 
