@@ -484,7 +484,7 @@ class static_mirror {
         if(!file_exists(self::hermes_file())){
             if(isset($_POST['token'])){
               $data = array('key'=>$_POST['token']);
-              if(isset($_POST['url']) && (parse_url($_POST['url']) != FALSE)){ $data['url'] = $_POST['url']; }
+              if(isset($_POST['url']) && (parse_url($_POST['url']) !== FALSE)){ $data['url'] = $_POST['url']; }
               file_put_contents(self::hermes_file(), str_replace('\/', '/', self::json_encode($data)));
               self::initial();
               return self::configure();
@@ -768,10 +768,12 @@ class static_mirror {
         }
         return $set;
       }
-      if(!file_exists($file)){ return FALSE; }
-      $raw = file_get_contents($file);
-      $json = json_decode($raw, $as_array);
-      return $json;
+      if(file_exists($file) || parse_url($file) !== FALSE){
+        $raw = file_get_contents($file);
+        $json = json_decode($raw, $as_array);
+        return $json;
+      }
+      return FALSE;
     }
 }
 
