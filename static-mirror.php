@@ -11,7 +11,8 @@ $patch = __DIR__.'/patch/';
 if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
 
 if(file_exists(__DIR__.'/vendor/autoload.php')){ require_once(__DIR__.'/vendor/autoload.php'); }
-if(file_exists('simple_html_dom.php')){ require('simple_html_dom.php'); }
+if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
+if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
 
 class static_mirror {
     var $path;
@@ -21,6 +22,7 @@ class static_mirror {
     public static function hermes_file(){ return __DIR__.'/hermes.json'; }
     public static function alias_file(){ return __DIR__.'/alias.json'; }
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
+    public static function whitelist_file(){ return __DIR__.'/whitelist.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
     public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
@@ -35,6 +37,7 @@ class static_mirror {
             case 'backup': self::backup(); break;
             case 'update': self::update(); break;
             case 'upgrade': self::upgrade(); break;
+            case 'r': case 'ra': case '2ndfa': case 'request-access': self::requestaccess(); break;
             case 'signin': case 'authenticate': case 'login': self::signin(); break;
             case 'signoff': self::signoff(); break;
             case 'configure': self::configure(); break;
@@ -303,6 +306,60 @@ class static_mirror {
         self::encapsule($html, TRUE);
         return FALSE;
     }
+    //public static function process_requestaccess(){}
+    public static function is_whitelisted($email=NULL){
+      if(!file_exists(self::whitelist_file())){ return FALSE; }
+      $json = json_decode(file_get_contents(self::whitelist_file()), TRUE);
+      if(!is_array($json)){ return FALSE; }
+      return (in_array($email, $json) ? TRUE : FALSE);
+    }
+    public static function authenticate_by_hash($m=NULL, $key=NULL){
+      /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
+      /*fix*/ if(isset($m)){ $m = str_replace(' ','+',$m); }
+      $jsonstr = self::decrypt($m, $key);
+      $data = json_decode($jsonstr, TRUE);
+      $lifespan = STATIC_MIRROR_LIFESPAN;
+      $status = (is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
+      /*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
+      return $status;
+    }
+    public static function requestaccess(){
+      $s = self::status_json(FALSE);
+      if(FALSE && $s['2ndFA'] === FALSE){
+        self::encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', TRUE);
+        return FALSE;
+      }
+      $mode = NULL;
+      $set = json_decode(file_get_contents(self::hermes_file()), TRUE);
+      $key = (isset($set['key']) ? $set['key'] : FALSE);
+      if(isset($_POST['emailaddress'])){
+        $mode = 'request';
+        if(self::is_whitelisted($_POST['emailaddress'])){ } # check if emailaddress exists within database
+        $data = array('e'=>$_POST['emailaddress'],'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
+        $jsonstr = json_encode($data);
+        $m = self::encrypt($jsonstr, $key);
+        /*debug*/ print '<pre>'; print_r(array('data'=>$data, 'json'=>$jsonstr, 'm'=>$m, 'l'=>strlen($m), 'URI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)) )); print '</pre>';
+        //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
+        # email by PHPMailer $data['e'] := self::current_URI($m)
+      } elseif(isset($_GET['m'])){
+        $mode = 'receive';
+        self::authenticate_by_hash($_GET['m'], $key);
+      }
+      switch(strtolower($mode)){
+        case 'receive':
+          //self::process_requestaccess();
+          $html = '(receive data, try to authenticate)';
+          break;
+        case 'request':
+          $html = '(request made, a mail has been sent)';
+          break;
+        default:
+          $html = '(insert emailaddress form)';
+          $html = '<form method="POST"><table><tr><td>Email address:</td><td><input name="emailaddress" type="email"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Request Access" /></td></tr></table></form>';
+      }
+      self::encapsule($html, TRUE);
+      return FALSE;
+    }
     public static function notfound($for=NULL){
         $html = "Error 404: Page not found.";
         if($for != NULL){ $html .= "\n\n".$for." is missing."; }
@@ -336,7 +393,7 @@ class static_mirror {
         }
         return ($sitemap === FALSE ? $c : $s);
     }
-    public static function status_json(){
+    public static function status_json($print=TRUE){
         $json = FALSE;
         if(isset($_GET['all'])){ $json = self::run_slaves('status.json'); }
         $stat = array('cache-mod-upoch'=>@filemtime(__DIR__.'/cache/index.html'),'system-mod-upoch'=>filemtime(__DIR__.'/static-mirror.php'));
@@ -350,12 +407,12 @@ class static_mirror {
         $stat['system-fingerprint'] = md5_file(__DIR__.'/static-mirror.php');
         $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
         $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
-        $stat['hermes'] = file_exists(self::hermes_file());
+        $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
+        $stat['hermes'] = (file_exists(self::hermes_file()) && $stat['curl']);
         if($stat['hermes'] === TRUE){
           $hermes = json_decode(file_get_contents(self::hermes_file()), TRUE);
           $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
         }
-        $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['alias'] = file_exists(self::alias_file());
         if($stat['alias'] === TRUE){
@@ -375,34 +432,53 @@ class static_mirror {
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
         $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
         $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
+        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(json_decode(file_get_contents(self::whitelist_file()), TRUE)) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
+        $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(json_decode(file_get_contents(self::slaves_file()), TRUE)) : 0);
+        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') && class_exists('simple_html_dom_node'));
+        $stat['2ndFA'] = FALSE; /*placeholder*/
         ksort($stat);
         $stat['URI'] = self::current_URI();
         $stat['JSONplus'] = (class_exists('JSONplus'));
-        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL|HTTP_HOST') as $i=>$s){ $stat[$s] = $_SERVER[$s]; }
+        if($stat['JSONplus'] === TRUE){
+          $stat['markdown'] = FALSE;
+          $stat['qtranslate'] = FALSE;
+          $stat['morpheus'] = FALSE;
+        }
+        $stat['PHPMailer'] = (class_exists('PHPMailer'));
+        $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
+        //*debug*/ $stat = array_merge($stat, $_SERVER);
+        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ $stat[$s] = $_SERVER[$s]; } #|HTTP_HOST
         //$stat = array_merge($stat, $_SERVER);
         if($json !== FALSE){
           $json[self::current_URI()] = $stat;
-          print self::json_encode($json); exit;
         }
         else{
-          print self::json_encode($stat); exit;
+          $json = $stat;
         }
-        return FALSE;
+        if($print === TRUE){
+          print self::json_encode($json); exit;
+          print FALSE;
+        }
+        else { return $json; }
     }
-    public static function current_URI(){
-      return self::build_url(array(
+    public static function current_URI($el=NULL, $pl=NULL){
+      $uri = array(
         'scheme'=>((
           (isset($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME']=='https') ||
           (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] == '443') ||
           (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') ||
           (isset($_SERVER['SCRIPT_URI']) && substr($_SERVER['SCRIPT_URI'],0,5)=='https')
         ) ? 'https' : 'http'),
-        'host'=>$_SERVER['HTTP_HOST'])
-      );
+        'host'=>$_SERVER['HTTP_HOST']);
+      if($el !== NULL){
+        if(is_array($el)){ $uri['query'] = $el; if($pl !== NULL){ $uri['path'] = $pl; } }
+        else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
+      }
+      return self::build_url($uri);
     }
     public static function configure(){
         if(!file_exists(self::hermes_file())){
@@ -580,7 +656,7 @@ class static_mirror {
         $url .= $ar['host'].(isset($ar['port']) ? ':'.$ar['port'] : NULL);
         $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (isset($ar['path']) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : '/') : NULL);
         $url .= (isset($ar['path']) ? $ar['path'] : NULL);
-        $url .= (isset($ar['query']) ? '?'.$ar['query'] : NULL);
+        $url .= (isset($ar['query']) ? '?'.(is_array($ar['query']) ? http_build_query($ar['query']) : $ar['query']) : NULL);
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
     }
