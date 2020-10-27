@@ -430,29 +430,28 @@ class static_mirror {
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
-        $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
-        $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
         $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file())) : 0);
-        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') && class_exists('simple_html_dom_node'));
         $stat['2ndFA'] = FALSE; /*placeholder*/
         ksort($stat);
         $stat['URI'] = self::current_URI();
+        $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
+        $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
         $stat['JSONplus'] = (class_exists('JSONplus'));
         if($stat['JSONplus'] === TRUE){
           $stat['markdown'] = FALSE;
           $stat['qtranslate'] = FALSE;
           $stat['morpheus'] = FALSE;
         }
+        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') && class_exists('simple_html_dom_node'));
         $stat['PHPMailer'] = (class_exists('PHPMailer'));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
-        //*debug*/ $stat = array_merge($stat, $_SERVER);
+        /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ $stat[$s] = $_SERVER[$s]; } #|HTTP_HOST
-        //$stat = array_merge($stat, $_SERVER);
         if($json !== FALSE){
           $json[self::current_URI()] = $stat;
         }
