@@ -103,6 +103,7 @@ class static_mirror {
         return $url;
     }
     public static function grab($for){
+        $allow_patch = FALSE;
         if(isset($this)){
             $path = $this->path;
             $patch = $this->patch;
@@ -138,7 +139,7 @@ class static_mirror {
             case 'css': header('content-type: text/css'); break;
             case 'eot': header('content-type: application/vnd.ms-fontobject'); break;
             case 'gif': header('content-type: image/gif'); break;
-            case 'htm': case 'html': header('content-type: text/html'); $hermes = TRUE; break;
+            case 'htm': case 'html': header('content-type: text/html'); $hermes = TRUE; $allow_patch = TRUE; break;
             case 'ico': header('content-type: image/vnd.microsoft.icon'); break;
             case 'jpg': case 'jpeg': header('content-type: image/jpeg'); break;
             case 'js': header('content-type: text/javascript'); break;
@@ -161,10 +162,10 @@ class static_mirror {
         if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
 
         if(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
-            print self::url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)));
+            print self::url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)), $allow_patch);
         }
         elseif(file_exists($path.basename($for))){
-            print self::url_patch(file_get_contents($path.$alias));
+            print self::url_patch(file_get_contents($path.$alias), $allow_patch);
         }
         else {
             $conf = self::file_get_json(__DIR__.'/static-mirror.json');
@@ -172,14 +173,15 @@ class static_mirror {
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
             if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
-            $raw = self::apply_patch($raw);
+            if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
-            print self::url_patch($raw);
+            print self::url_patch($raw, $allow_patch);
         }
         return TRUE;
     }
     public static function url_patch($str, $find=NULL, $host=FALSE){
+      if(is_bool($find)){ if($find === FALSE){ return $str; } else { $find = NULL; }}
       /*fix*/ $alt = $find;
       if($host === FALSE){ $host = $_SERVER['HTTP_HOST']; }
       if($find === NULL){
