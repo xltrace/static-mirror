@@ -469,6 +469,10 @@ class static_mirror {
         $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file())) : 0);
         $stat['2ndFA'] = FALSE; /*placeholder*/
+        $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
+        $stat['registery'] = FALSE; //future feature: allow visitors to leave their email-emailaddress in mailinglist.json
+        $stat['active-mirror'] = FALSE; //future feature: enables active mirroring, for example when form-data is being committed. Form-data will be forwarded.
+        $stat['backup'] = FALSE; //future feature: allow to backup the settings with the patch into an zip-file
         ksort($stat);
         $stat['URI'] = self::current_URI();
         $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
@@ -479,7 +483,7 @@ class static_mirror {
           $stat['qtranslate'] = FALSE;
           $stat['morpheus'] = FALSE;
         }
-        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') && class_exists('simple_html_dom_node'));
+        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
         $stat['PHPMailer'] = (class_exists('PHPMailer'));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
