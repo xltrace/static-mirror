@@ -172,6 +172,7 @@ class static_mirror {
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
             if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
+            $raw = self::apply_patch($raw);
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
             print $raw;
@@ -236,7 +237,20 @@ class static_mirror {
         }
 
         $raw = file_get_contents($src);
+        $raw = self::apply_patch($raw);
 
+        file_put_contents($path.'index.html', $raw);
+        print self::url_patch($raw);
+        return $raw;
+    }
+    public static function apply_patch($raw=NULL){
+        if(isset($this)){
+            $path = $this->path;
+            $patch = $this->patch;
+        }
+        else {
+            global $path, $patch;
+        }
         $list = scandir($patch);
         foreach($list as $i=>$f){
             //*debug*/ print $f."\n";
@@ -270,9 +284,6 @@ class static_mirror {
                 }
             }
         }
-
-        file_put_contents($path.'index.html', $raw);
-        print $raw;
         return $raw;
     }
     public static function upgrade(){
