@@ -161,10 +161,10 @@ class static_mirror {
         if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
 
         if(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
-            print file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias));
+            print self::url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)));
         }
         elseif(file_exists($path.basename($for))){
-            print file_get_contents($path.$alias);
+            print self::url_patch(file_get_contents($path.$alias));
         }
         else {
             $conf = self::file_get_json(__DIR__.'/static-mirror.json');
@@ -177,6 +177,22 @@ class static_mirror {
             print $raw;
         }
         return TRUE;
+    }
+    public static function url_patch($str, $find=NULL, $host=FALSE){
+      /*fix*/ $alt = $find;
+      if($host === FALSE){ $host = $_SERVER['HTTP_HOST']; }
+      if($find === NULL){
+        $find = array('https://localhost/', 'http://localhost/');
+        /*future upgrade: grab from patch/.preg*/
+      }
+      if(is_array($find)){foreach($find as $i=>$el){
+        $alt[$i] = (parse_url($el) !== FALSE ? self::current_URI(NULL, NULL, array_merge(parse_url($el), array('host'=>$host))) : $el);
+      }}
+      elseif($find !== NULL){
+        $alt = (parse_url($find) !== FALSE ? self::current_URI(NULL, NULL, array_merge(parse_url($find), array('host'=>$host))) : $find);
+      }
+      if($find !== NULL){ $str = str_replace($find, $alt, $str); }
+      return $str;
     }
     public static function initial(){
         if(isset($this)){
@@ -464,7 +480,7 @@ class static_mirror {
         }
         else { return $json; }
     }
-    public static function current_URI($el=NULL, $pl=NULL){
+    public static function current_URI($el=NULL, $pl=NULL, $set=array()){
       $uri = array(
         'scheme'=>((
           (isset($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME']=='https') ||
@@ -477,6 +493,7 @@ class static_mirror {
         if(is_array($el)){ $uri['query'] = $el; if($pl !== NULL){ $uri['path'] = $pl; } }
         else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
       }
+      /*fix*/ if(is_array($set)){ $uri = array_merge($uri, $set); }
       return self::build_url($uri);
     }
     public static function configure(){
