@@ -175,7 +175,7 @@ class static_mirror {
             $raw = self::apply_patch($raw);
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
-            print $raw;
+            print self::url_patch($raw);
         }
         return TRUE;
     }
@@ -186,13 +186,15 @@ class static_mirror {
         $find = array('https://localhost/', 'http://localhost/');
         /*future upgrade: grab from patch/.preg*/
       }
+      /*fix*/ if(is_string($find)){ $find = array($find); }
       if(is_array($find)){foreach($find as $i=>$el){
         $alt[$i] = (parse_url($el) !== FALSE ? self::current_URI(NULL, NULL, array_merge(parse_url($el), array('host'=>$host))) : $el);
       }}
-      elseif($find !== NULL){
-        $alt = (parse_url($find) !== FALSE ? self::current_URI(NULL, NULL, array_merge(parse_url($find), array('host'=>$host))) : $find);
-      }
-      if($find !== NULL){ $str = str_replace($find, $alt, $str); }
+      /* \/ fix*/
+      if(is_array($find)){$ef=array();foreach($find as $i=>$el){ if(preg_match('#[/]#', $el)){ $ef[$i] = str_replace('/','\\/', $el); } $find = array_merge($find, $ef); }}
+      if(is_array($alt)){$af=array();foreach($alt as $i=>$el){ if(preg_match('#[/]#', $el)){ $af[$i] = str_replace('/','\\/', $el); } $alt = array_merge($alt, $af); }}
+
+      $str = str_replace($find, $alt, $str);
       return $str;
     }
     public static function initial(){
@@ -280,6 +282,7 @@ class static_mirror {
                     if(isset($s['before']) && isset($s['after'])){
                         //$raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw);
                         $raw = str_replace($s['before'], $s['after'], $raw);
+                        /*\/ fix*/ if(preg_match('#[/]#', $s['before'])){ $raw = str_replace(str_replace('/','\\/',$s['before']), str_replace('/','\\/',$s['after']), $raw); }
                     }
                 }
             }
@@ -499,7 +502,7 @@ class static_mirror {
           (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') ||
           (isset($_SERVER['SCRIPT_URI']) && substr($_SERVER['SCRIPT_URI'],0,5)=='https')
         ) ? 'https' : 'http'),
-        'host'=>$_SERVER['HTTP_HOST']);
+        'host'=>(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost'));
       if($el !== NULL){
         if(is_array($el)){ $uri['query'] = $el; if($pl !== NULL){ $uri['path'] = $pl; } }
         else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
@@ -697,12 +700,12 @@ class static_mirror {
         $message = array(
             "when"=>date('c'),
             "stamp"=>date('U'),
-            "identity"=>substr(md5($_SERVER['REMOTE_ADDR']), 0, 24),
+            "identity"=>substr(md5((isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')), 0, 24),
             "HTTP_HOST"=>self::current_URI(),
             "load"=>$path,
-            "HTTP_USER_AGENT"=>$_SERVER['HTTP_USER_AGENT'],
-            "REMOTE_ADDR"=>$_SERVER['REMOTE_ADDR'],
-            "HTTP_ACCEPT_LANGUAGE"=>$_SERVER['HTTP_ACCEPT_LANGUAGE']
+            "HTTP_USER_AGENT"=>(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'cli'),
+            "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost'),
+            "HTTP_ACCEPT_LANGUAGE"=>(isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? $_SERVER['HTTP_ACCEPT_LANGUAGE'] : '')
         );
         //$message['item'] = $message['load'];
         $message = json_encode($message);
