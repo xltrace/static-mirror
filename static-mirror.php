@@ -10,9 +10,11 @@ $patch = __DIR__.'/patch/';
 
 if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
 
-if(file_exists(__DIR__.'/vendor/autoload.php')){ require_once(__DIR__.'/vendor/autoload.php'); }
+if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
 if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
 if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
+
+if(class_exists('JSONplus')){ \JSONplus::worker(); }
 
 class static_mirror {
     var $path;
@@ -487,7 +489,7 @@ class static_mirror {
         $stat['PHPMailer'] = (class_exists('PHPMailer'));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
-        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ $stat[$s] = $_SERVER[$s]; } #|HTTP_HOST
+        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ if(isset($_SERVER[$s])){ $stat[$s] = $_SERVER[$s]; } } #|HTTP_HOST
         if($json !== FALSE){
           $json[self::current_URI()] = $stat;
         }
