@@ -14,7 +14,7 @@ if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); requi
 if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
 if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
 
-if(class_exists('JSONplus')){ \JSONplus::worker(); }
+if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 
 class static_mirror {
     var $path;
@@ -163,7 +163,28 @@ class static_mirror {
 
         if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
 
-        if(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
+        $G = $_GET; $P = $_POST; /*fix*/ unset($G['for']); if(strlen($P['raw']) == 0){ unset($P['raw']); }
+        if((function_exists('curl_init') && function_exists('curl_setopt') && function_exists('curl_exec')) && ((isset($G) && is_array($G) && count($G) > 0) || (isset($P) && is_array($P) && count($P) > 0))){
+            //grab through CURL an uncached version, and do not cache
+            $conf = self::file_get_json(__DIR__.'/static-mirror.json');
+            $src = reset($conf);
+            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
+            $url = parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for;
+
+            $url = $url.'?'.self::array_urlencode($G);
+            $ch = curl_init( $url );
+            curl_setopt( $ch, CURLOPT_POST, 1);
+            curl_setopt( $ch, CURLOPT_POSTFIELDS, self::array_urlencode($P));
+            curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
+            curl_setopt( $ch, CURLOPT_HEADER, 0);
+            curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
+            $raw = curl_exec( $ch );
+
+            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
+            if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
+            print self::url_patch($raw, $allow_patch);
+        }
+        elseif(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
             print self::url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)), $allow_patch);
         }
         elseif(file_exists($path.basename($for))){
@@ -698,7 +719,7 @@ class static_mirror {
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
     }
-    public static function hermes($path=FALSE, $mode=FALSE){
+    public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
         if(!file_exists(self::hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
         # $path + $url + $key
@@ -712,13 +733,18 @@ class static_mirror {
             "HTTP_HOST"=>self::current_URI(),
             "load"=>$path,
             "HTTP_USER_AGENT"=>(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'cli'),
-            "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost'),
-            "HTTP_ACCEPT_LANGUAGE"=>(isset($_SERVER['HTTP_ACCEPT_LANGUAGE']) ? $_SERVER['HTTP_ACCEPT_LANGUAGE'] : '')
+            "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')
         );
+        if(isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])){ $message["HTTP_ACCEPT_LANGUAGE"] = $_SERVER['HTTP_ACCEPT_LANGUAGE']; }
         //$message['item'] = $message['load'];
+        if($addpostget !== FALSE){
+          $G = $_GET; $P = $_POST; /*fix*/ unset($G['for']); if(strlen($P['raw']) == 0){ unset($P['raw']); }
+          if(isset($G) && is_array($G) && count($G) > 0){ $message['_GET'] = $G; }
+          if(isset($P) && is_array($P) && count($P) > 0){ $message['_POST'] = $P; }
+        }
         $message = json_encode($message);
         if($key !== FALSE){ $message = self::encrypt($message, $key); }
-        /*debug*/ print '<!-- HERMES: '.$message.' -->';
+        //*debug*/ print '<!-- HERMES: '.$message.' -->';
         /*fix if curl not exists*/ if($mode === NULL){ return $message; }
         $fm = 'json='.$message; //&var=
         $ch = curl_init( $url );
@@ -793,6 +819,13 @@ class static_mirror {
     }
     public static function json_encode($value, $options=0, $depth=512){
       return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
+    }
+    public static function array_urlencode($ar=array()){
+        $set = array();
+        foreach($ar as $key=>$value){
+          $set[$key] = $key.'='.urlencode($value);
+        }
+        return implode('&', $set);
     }
     public static function file_get_json($file, $as_array=TRUE){
       /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
