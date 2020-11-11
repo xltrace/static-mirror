@@ -163,7 +163,7 @@ class static_mirror {
 
         if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
 
-        $G = $_GET; $P = $_POST; /*fix*/ unset($G['for']); if(strlen($P['raw']) == 0){ unset($P['raw']); }
+        $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
         if((function_exists('curl_init') && function_exists('curl_setopt') && function_exists('curl_exec')) && ((isset($G) && is_array($G) && count($G) > 0) || (isset($P) && is_array($P) && count($P) > 0))){
             //grab through CURL an uncached version, and do not cache
             $conf = self::file_get_json(__DIR__.'/static-mirror.json');
@@ -738,7 +738,7 @@ class static_mirror {
         if(isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])){ $message["HTTP_ACCEPT_LANGUAGE"] = $_SERVER['HTTP_ACCEPT_LANGUAGE']; }
         //$message['item'] = $message['load'];
         if($addpostget !== FALSE){
-          $G = $_GET; $P = $_POST; /*fix*/ unset($G['for']); if(strlen($P['raw']) == 0){ unset($P['raw']); }
+          $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
           if(isset($G) && is_array($G) && count($G) > 0){ $message['_GET'] = $G; }
           if(isset($P) && is_array($P) && count($P) > 0){ $message['_POST'] = $P; }
         }
@@ -820,12 +820,18 @@ class static_mirror {
     public static function json_encode($value, $options=0, $depth=512){
       return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
     }
-    public static function array_urlencode($ar=array()){
+    public static function array_urlencode($ar=array(), $sub=FALSE, $implode=TRUE){
         $set = array();
-        foreach($ar as $key=>$value){
-          $set[$key] = $key.'='.urlencode($value);
+        foreach($ar as $k=>$value){
+          $key = (is_bool($sub) ? $k : $sub.'['.$k.']');
+          if(is_array($value)){
+            $set = array_merge($set, self::array_urlencode($value, $key, FALSE));
+          }
+          else{
+            $set[$key] = $key.'='.urlencode($value);
+          }
         }
-        return implode('&', $set);
+        return ($implode === TRUE ? implode('&', $set) : $set);
     }
     public static function file_get_json($file, $as_array=TRUE){
       /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
