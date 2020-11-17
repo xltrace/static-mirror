@@ -502,12 +502,12 @@ class static_mirror {
         $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
         $stat['JSONplus'] = (class_exists('JSONplus'));
         if($stat['JSONplus'] === TRUE){
-          $stat['markdown'] = FALSE;
-          $stat['qtranslate'] = FALSE;
-          $stat['morpheus'] = FALSE;
+          $stat['markdown'] = class_exists('\JSONplus\markdown');
+          $stat['qtranslate'] = class_exists('\JSONplus\qTranslate');
+          $stat['morpheus'] = class_exists('\JSONplus\morpheus');
         }
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
-        $stat['PHPMailer'] = (class_exists('PHPMailer'));
+        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer'));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ if(isset($_SERVER[$s])){ $stat[$s] = $_SERVER[$s]; } } #|HTTP_HOST
