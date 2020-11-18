@@ -24,6 +24,7 @@ class static_mirror {
     public static function hermes_file(){ return __DIR__.'/hermes.json'; }
     public static function alias_file(){ return __DIR__.'/alias.json'; }
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
+    public static function mailbox_file(){ return __DIR__.'/mailbox.json'; }
     public static function whitelist_file(){ return __DIR__.'/whitelist.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
@@ -47,6 +48,7 @@ class static_mirror {
             case 'duplicate': self::duplicate(); break;
             case 'decrypt': self::decrypt_module(); break;
             case 'hit': self::hermes_hit(); break;
+            case 'mailbox': self::mailbox(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
@@ -719,6 +721,82 @@ class static_mirror {
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
     }
+    public static function mailbox(){
+        //if(self::authenticated() !== TRUE){ return self::signin(); }
+        $message = (isset($_GET['message']) ? $_GET['message'] : NULL);
+        $title = (isset($_GET['title']) ? $_GET['title'] : NULL);
+        $html = self::send_mail($title, $message, $_POST['raw'], TRUE);
+        self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
+        $count = 0;
+        /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
+        /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); }
+        $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE), (is_array($set) ? $set : array()));
+        //if(self::authenticated() !== TRUE){ return FALSE/*self::signin()*/; }
+        if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
+          $message = (file_exists($message) ? file_get_contents($message) : NULL); //grab $message
+          switch($ext[1]){
+            case 'md':
+              $message = ($message); //parse markdown
+              break;
+            //case 'html': default: //do nothing to change input
+          }
+        }
+        /* json / single or non addressy fix */ if(!is_array($to)){ if(is_string($to)){ $to = (preg_match('#^\s*[\[\{]#', $to) && preg_match('#[\]\}]\s*$#', $to) ? json_decode($to, TRUE) : array($to)); } else{ $to = array(); } }
+        /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']);}
+        foreach($to as $i=>$t){
+          if(is_string($t)){ $t = array('email'=>trim($t)); }
+          if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && self::is_emailaddress($t['email'])){
+            /*debug*/ print "Send email to: ".$t['email']."\n";
+
+            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+            /*
+            $mail->SMTPDebug = SMTP::DEBUG_SERVER;
+            $mail->isSMTP();
+            $mail->Host       = 'smtp1.example.com';
+            $mail->SMTPAuth   = true;
+            $mail->Username   = 'user@example.com';
+            $mail->Password   = 'secret';
+            $mail->SMTPSecure = (TRUE ? PHPMailer::ENCRYPTION_STARTTLS : PHPMailer::ENCRYPTION_SMTPS);
+            $mail->Port       = (TRUE ? 587 : 465);
+            */
+            //Recipients
+            foreach(array('from'=>'setFrom','to'=>'addAddress','reply-to'=>'addReplyTo','cc'=>'addCC','bcc'=>'addBCC') as $v=>$m){
+              if(isset($set[$v])){
+                if(is_string($set[$v]) || (is_array($set[$v]) && isset($set[$v]['email'])) ){ $set[$v] = array($set[$v]); }
+                foreach($set[$v] as $j=>$w){
+                  if(is_array($w) && isset($w['email']) && self::is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
+                  elseif(is_string($w) && self::is_emailaddress($w)){ $mail->$m($w); }
+                }
+              }
+            }
+            if(isset($t['name'])){ $mail->addAddress($t['email'], $t['name']); } else { $mail->addAddress($t['email']); }
+
+            // Attachments
+            if(isset($set['attachment'])){
+              if(!is_array($set['attachment'])){ $set['attachment'] = array($set['attachment']); }
+              foreach($set['attachment'] as $j=>$a){
+                if(is_array($a) && isset($a['src']) && file_exists($a['src']) && isset($a['name'])){ $mail->addAttachment($a['src'], $a['name']); }
+                elseif(is_string($a) && file_exists($a)){ $mail->addAttachment($a); }
+              }
+            }
+
+            // Content
+            $mail->isHTML(true);
+            $mail->Subject = $title;
+            $mail->Body    = $message;
+            $mail->AltBody = trim($message); //todo: html clean
+
+            if(FALSE){ $mail->send(); } else { print_r($mail); }
+
+            $count++;
+          }
+        }
+        return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? self::encapsule($message, FALSE) : $count);
+    }
+    public static function is_emailaddress($email=NULL){ return filter_var($email, FILTER_VALIDATE_EMAIL); }
     public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
         if(!file_exists(self::hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
@@ -845,7 +923,8 @@ class static_mirror {
         }
         return $set;
       }
-      if(file_exists($file) || parse_url($file) !== FALSE){
+      $puf = parse_url($file);
+      if((is_array($puf) && !isset($puf['schema']) && !isset($puf['host']) ? file_exists($file) : $puf !== FALSE )){
         $raw = file_get_contents($file);
         $json = json_decode($raw, $as_array);
         return $json;
