@@ -17,5 +17,6 @@
             "name": "Sent G. Wierda",
             "email": "sentwierda@gmail.com"
         }
-    ]
+    ],
+    "autoload": {"files":["static-mirror.php"]}
 }

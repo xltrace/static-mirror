@@ -1,21 +1,21 @@
 <?php
 namespace XLtrace;
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
+if(basename(dirname(__DIR__, 2)) != 'vendor'){
+  ini_set('display_errors', 1);
+  ini_set('display_startup_errors', 1);
+  error_reporting(E_ALL);
 
 
-$path = __DIR__.'/cache/';
-$patch = __DIR__.'/patch/';
+  $path = __DIR__.'/cache/';
+  $patch = __DIR__.'/patch/';
+  if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
 
-if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
+  if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
+  if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
+  if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
 
-if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
-if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
-if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
-
-if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
-
+  if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
+}
 class static_mirror {
     var $path;
     var $patch;
@@ -1004,6 +1004,8 @@ class static_mirror {
     }
 }
 
-/*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
-\XLtrace\static_mirror::detect($_GET['for']);
+if(basename(dirname(__DIR__, 2)) != 'vendor'){
+  /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
+  \XLtrace\static_mirror::detect($_GET['for']);
+}
 ?>
