@@ -676,7 +676,7 @@ class static_mirror {
         if(isset($json['system-fingerprint']) && strlen($json['system-fingerprint']) == 32){ return TRUE; }
         return FALSE;
     }
-    public static function encapsule($content=NULL, $print=TRUE){
+    public static function encapsule($content=NULL, $print=TRUE, $template='empty.html'){
         //encapsule when an cache/empty.html skin is available
 
         // $content = ''.$content.'';
@@ -721,13 +721,46 @@ class static_mirror {
         $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
         return $url;
     }
+    public static function m($str=NULL, $set=array()){
+      if(class_exists('\JSONplus\Morpeus')){ return \JSONplus\Morpheus::parse($str, $set); }
+      preg_match_all('#[\{]([^\}\?\|]+)([^\}]+)?[\}]#', $str, $buffer);
+      foreach($buffer[0] as $i=>$hit){
+        $with = (isset($set[$buffer[1][$i]]) ? $set[$buffer[1][$i]] : FALSE);
+        switch(substr($buffer[2][$i], 0, 1)){
+          case '|':
+            if($with === FALSE){ $with = substr($buffer[2][$i], 1); }
+            break;
+          case '?':
+            $x = explode(':', $buffer[2][$i]);
+            $with = ($with === FALSE ? (isset($x[1]) ? $x[1] : NULL) : substr($x[0], 1));
+            break;
+          default:
+            if($with === FALSE){ $with = $hit; }
+        }
+        $str = str_replace($hit, $with, $str);
+      }
+      return $str;
+    }
     public static function mailbox(){
         //if(self::authenticated() !== TRUE){ return self::signin(); }
-        $message = (isset($_GET['message']) ? $_GET['message'] : NULL);
-        $title = (isset($_GET['title']) ? $_GET['title'] : NULL);
-        $html = self::send_mail($title, $message, $_POST['raw'], TRUE);
+        $set = array();
+        $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
+        $set['title'] = (isset($_POST['title']) ? $_POST['title'] : (isset($_GET['title']) ? $_GET['title'] : NULL));
+        $to = (isset($_POST['raw']) ? $_POST['raw'] : (isset($_POST['email']) && isset($_POST['name']) ? array('email' => $_POST['email'], 'name'=> $_POST['name']) : NULL));
+        $note = self::send_mail($set['title'], $set['message'], $to, TRUE);
+
+        $html = self::compose_mail_html(array_merge($set, (is_array($to) ? $to : array()), array('notification'=>$note) ));
         self::encapsule($html, TRUE);
         return FALSE;
+    }
+    public static function compose_mail_html($set=array()){
+      return self::m('{notification|}<form method="POST">'
+        .'<label for="name">To: <input type="text" name="name" id="name" value="{name|}" placeholder="Name"></label>'
+        .'<label for="email"> &lt;<input type="email" name="email" id="email" value="{email|}" placeholder="Emailaddress">&gt;</label><br>'
+        .'<label for="title">Title: <input type="text" name="title" id="title" value="{title|}" placeholder="Title"></label><br>'
+        .'<label for="message">Message: <textarea name="message" id="message" rows="8" cols="20" class="wysiwyg html">{message|}</textarea></label><br>'
+        .'<input type="submit" value="Send">'
+        .'</form>', $set);
     }
     public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
         $count = 0;
@@ -752,16 +785,45 @@ class static_mirror {
             /*debug*/ print "Send email to: ".$t['email']."\n";
 
             $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-            /*
-            $mail->SMTPDebug = SMTP::DEBUG_SERVER;
-            $mail->isSMTP();
-            $mail->Host       = 'smtp1.example.com';
-            $mail->SMTPAuth   = true;
-            $mail->Username   = 'user@example.com';
-            $mail->Password   = 'secret';
-            $mail->SMTPSecure = (TRUE ? PHPMailer::ENCRYPTION_STARTTLS : PHPMailer::ENCRYPTION_SMTPS);
-            $mail->Port       = (TRUE ? 587 : 465);
-            */
+
+            foreach(array('CharSet','Ical','Timeout') as $act){
+              if(isset($set[strtolower($act)])){ $mail->$act = $set[strtolower($act)]; }
+            }
+
+            if((isset($set['smtp']) && $set['smtp'] === TRUE) || isset($set['smtp-auth'])){
+              if(isset($set['smtp-debug'])){
+                /*fix*/ if(is_string($set['smtp-debug'])){ $set['smtp-debug'] = strtoupper($set['smtp-debug']); }
+                switch($set['smtp-debug']){
+                  case FALSE: case 'OFF': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_OFF; break;
+                  case NULL: case 'CLIENT': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_CLIENT; break;
+                  case TRUE: case 'SERVER': default: $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_SERVER;
+                }
+              }
+              $mail->isSMTP();
+              if(isset($set['smtp-auth'])){
+                $mail->SMTPAuth = (is_bool($set['smtp-auth']) && $set['smtp-auth'] === TRUE ? TRUE : FALSE);
+                $mail->SMTPSecure = (isset($set['tls']) ? \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS);
+                if(isset($set['smtp-options'])){ $mail->SMTPOptions = $set['smtp-options']; }
+              }
+              $mail->Host = $set['host'];
+              if(isset($set['username'])){ $mail->Username   = $set['username']; }
+              if(isset($set['password'])){ $mail->Password   = $set['password']; }
+              $mail->Port = (isset($set['port']) && is_int($set['port']) ? $set['port'] : (FALSE ? 25 : (isset($set['tls']) ? 587 : 465))); //25, 456, 587
+            }
+            elseif(isset($set['sendmail']) && $set['sendmail'] === TRUE){
+              $mail->isSendmail();
+            }
+
+            if(FALSE){ //smime signed mail
+              $mail->sign(
+                $set['crt'],
+                $set['key'],
+                (FALSE ? $set['spkp'] : NULL),
+                $set['pem']
+              );
+            }
+            //DKIM: https://github.com/PHPMailer/PHPMailer/blob/master/examples/DKIM_sign.phps
+
             //Recipients
             foreach(array('from'=>'setFrom','to'=>'addAddress','reply-to'=>'addReplyTo','cc'=>'addCC','bcc'=>'addBCC') as $v=>$m){
               if(isset($set[$v])){
@@ -771,6 +833,12 @@ class static_mirror {
                   elseif(is_string($w) && self::is_emailaddress($w)){ $mail->$m($w); }
                 }
               }
+            }
+            if(isset($set['confirmreadingto']) && self::is_emailaddress($set['confirmreadingto'])){
+              $mail->ConfirmReadingTo = $set['confirmreadingto'];
+              $mail->AddCustomHeader( "X-Confirm-Reading-To: ".$set['confirmreadingto'] );
+              $mail->AddCustomHeader( "Return-Receipt-To: ".$set['confirmreadingto'] );
+              $mail->AddCustomHeader( "Disposition-Notification-To: ".$set['confirmreadingto'] );
             }
             if(isset($t['name'])){ $mail->addAddress($t['email'], $t['name']); } else { $mail->addAddress($t['email']); }
 
@@ -786,10 +854,13 @@ class static_mirror {
             // Content
             $mail->isHTML(true);
             $mail->Subject = $title;
-            $mail->Body    = $message;
+            //$mail->msgHTML(file_get_contents('contents.html'), __DIR__);
+            $mail->Body    = self::encapsule($message, FALSE, (isset($set['template']) ? $set['template']  : 'email.html'));
             $mail->AltBody = trim($message); //todo: html clean
 
-            if(FALSE){ $mail->send(); } else { print_r($mail); }
+            if(!isset($_GET['debug'])){ $mail->send(); } else { print_r($mail); }
+
+            //save on imap like gmail: https://github.com/PHPMailer/PHPMailer/blob/master/examples/gmail.phps
 
             $count++;
           }
