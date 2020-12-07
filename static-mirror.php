@@ -462,20 +462,20 @@ class static_mirror {
         return FALSE;
     }
     public static function status_html($set=array(), $with_style=FALSE){
-        if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>.bigicon { font-size: 16pt; } .fa { margin: 0 4px; } .green { color: green; } .light-gray { color: #CCC; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
+        if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>a { text-decoration: none; color: #555; } a:hover { text-decoration: underline; } a:hover i { opacity: 0.8; } .bigicon { font-size: 16pt; margin: 4px 2px; } .green { color: green; } .light-gray { color: #CCC; } .black { color: black; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
 
         $icstr = NULL;
         if(is_bool($set)){ return $str; }
-        $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','active-mirror'=>'microscope','alias'=>'object-ungroup','2ndFA'=>'paper-plane','cache'=>'copy','cockpit'=>'mail-bulk','crontab'=>'stopwatch','encapsule'=>'file-import','hades'=>'fire-alt','hermes'=>'comment-alt','mirror'=>'closed-captioning','registery'=>'cash-register','whitelist'=>'clipboard-list','wiki'=>'file-word');
-        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','2ndFA'=>'{URI|}/signin');
+      $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','2ndFA'=>'paper-plane',/*'registery'=>'user-plus',*/'whitelist'=>'clipboard-list','mirror'=>'closed-captioning',/*'active-mirror'=>'microscope',*/'alias'=>'object-ungroup','cache'=>'copy',/*'crontab'=>'stopwatch',*/'encapsule'=>'file-import','simple_html_dom'=>'code','patch-size'=>'dumbbell',/*'hades'=>'fire-alt',*/'composer'=>'database','composer-phar'=>'robot','hermes'=>'comment-dots'/*,'wiki'=>'file-word','cockpit'=>'mail-bulk','backup'=>'file-archive'*/);
+        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','2ndFA'=>'{URI|}/signin','registery'=>'{URI|}/register');
         foreach($icons as $tag=>$ico){
           $href = (isset($iconsurl[$tag]) && (isset($set[$tag]) ? !($set[$tag] === FALSE) : FALSE) );
           if($href){ $icstr .= '<a href="'.(isset($set[$iconsurl[$tag]]) ? $set[$iconsurl[$tag]] : $iconsurl[$tag]).'">'; }
-          $icstr .= '<i class="bigicon fa fa-'.$ico.' '.$ico.(isset($set[$tag]) && is_bool($set[$tag]) ? ($set[$tag] == TRUE ? ' true green' : ' false light-gray') : ' null gray').'" title="'.$tag.'"></i>';
+          $icstr .= '<i class="bigicon fa fa-fw fa-'.$ico.' '.$ico.(isset($set[$tag]) && (is_bool($set[$tag]) || $set[$tag] == '0') ? ($set[$tag] == TRUE ? ' true green' : ' false light-gray') : ' null black').'" title="'.$tag.(isset($set[$tag]) && !is_bool($set[$tag]) ? ': '.$set[$tag] : NULL).'"></i>';
           if($href){ $icstr .= '</a>'; }
         }
 
-        $str .= '<p>'.$icstr.' <i class="bigicon fa fa-swatchbook black" title="{system-size} {system-fingerprint|} {system-mod|}"></i> <a href="{URI|#}">{URI|localhost}</a> <small style="float: right;" class="light-gray">{SERVER_SOFTWARE|} {SERVER_PROTOCOL|}</small></p>';
+        $str .= '<p><i class="bigicon fa fa-swatchbook black" title="{system-size} {system-fingerprint|} {system-mod|}"></i> <a href="{URI|#}" style="display: inline-block; min-width: 240px;">{URI|localhost}</a> '.$icstr.' <small style="float: right;" class="light-gray">{SERVER_SOFTWARE|} {SERVER_PROTOCOL|}</small></p>';
 
         return self::m($str, $set);
     }
