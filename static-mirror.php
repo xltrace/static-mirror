@@ -51,6 +51,7 @@ class static_mirror {
             case 'mailbox': self::mailbox(); break;
             case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
+            case 'status': self::status(); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
@@ -449,6 +450,34 @@ class static_mirror {
           }
         }
         return ($sitemap === FALSE ? $c : $s);
+    }
+    public static function status(){
+        $s = self::status_json(FALSE);
+        if(isset($s['system-fingerprint'])){ $html = self::status_html($s, TRUE); }
+        else{
+          $html = NULL; $header = TRUE;
+          foreach($s as $key=>$set){ $html .= self::status_html($set, $header); $header = FALSE; }
+        }
+        self::encapsule($html, TRUE);
+        return FALSE;
+    }
+    public static function status_html($set=array(), $with_style=FALSE){
+        if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>.bigicon { font-size: 16pt; } .fa { margin: 0 4px; } .green { color: green; } .light-gray { color: #CCC; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
+
+        $icstr = NULL;
+        if(is_bool($set)){ return $str; }
+        $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','active-mirror'=>'microscope','alias'=>'object-ungroup','2ndFA'=>'paper-plane','cache'=>'copy','cockpit'=>'mail-bulk','crontab'=>'stopwatch','encapsule'=>'file-import','hades'=>'fire-alt','hermes'=>'comment-alt','mirror'=>'closed-captioning','registery'=>'cash-register','whitelist'=>'clipboard-list','wiki'=>'file-word');
+        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','2ndFA'=>'{URI|}/signin');
+        foreach($icons as $tag=>$ico){
+          $href = (isset($iconsurl[$tag]) && (isset($set[$tag]) ? !($set[$tag] === FALSE) : FALSE) );
+          if($href){ $icstr .= '<a href="'.(isset($set[$iconsurl[$tag]]) ? $set[$iconsurl[$tag]] : $iconsurl[$tag]).'">'; }
+          $icstr .= '<i class="bigicon fa fa-'.$ico.' '.$ico.(isset($set[$tag]) && is_bool($set[$tag]) ? ($set[$tag] == TRUE ? ' true green' : ' false light-gray') : ' null gray').'" title="'.$tag.'"></i>';
+          if($href){ $icstr .= '</a>'; }
+        }
+
+        $str .= '<p>'.$icstr.' <i class="bigicon fa fa-swatchbook black" title="{system-size} {system-fingerprint|} {system-mod|}"></i> <a href="{URI|#}">{URI|localhost}</a> <small style="float: right;" class="light-gray">{SERVER_SOFTWARE|} {SERVER_PROTOCOL|}</small></p>';
+
+        return self::m($str, $set);
     }
     public static function status_json($print=TRUE){
         $json = FALSE;
