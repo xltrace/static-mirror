@@ -771,11 +771,13 @@ class static_mirror {
       return $str;
     }
     public static function mailbox(){
-        //if(self::authenticated() !== TRUE){ return self::signin(); }
+        if(self::authenticated() !== TRUE){ return self::signin(); }
+        $s = self::status_json(FALSE);
+        if($s['PHPMailer'] === false){ return self::encapsule('Unable to send email.', TRUE); }
         $set = array();
         $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
         $set['title'] = (isset($_POST['title']) ? $_POST['title'] : (isset($_GET['title']) ? $_GET['title'] : NULL));
-        $to = (isset($_POST['raw']) ? $_POST['raw'] : (isset($_POST['email']) && isset($_POST['name']) ? array('email' => $_POST['email'], 'name'=> $_POST['name']) : NULL));
+        $to = (isset($_POST['email']) && isset($_POST['name']) ? array('email' => $_POST['email'], 'name'=> $_POST['name']) : (isset($_POST['raw']) ? $_POST['raw'] : NULL));
         $note = self::send_mail($set['title'], $set['message'], $to, TRUE);
 
         $html = self::compose_mail_html(array_merge($set, (is_array($to) ? $to : array()), array('notification'=>$note) ));
