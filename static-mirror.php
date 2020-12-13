@@ -396,9 +396,11 @@ class static_mirror {
         $data = array('e'=>$_POST['emailaddress'],'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
         $jsonstr = json_encode($data);
         $m = self::encrypt($jsonstr, $key);
-        /*debug*/ print '<pre>'; print_r(array('data'=>$data, 'json'=>$jsonstr, 'm'=>$m, 'l'=>strlen($m), 'URI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)) )); print '</pre>';
+        $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'm'=>$m, 'l'=>strlen($m), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
+        /*debug*/ print '<pre>'; print_r($fs); print '</pre>';
         //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
         # email by PHPMailer $data['e'] := self::current_URI($m)
+        self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $_POST['emailaddress'], $fs);
       } elseif(isset($_GET['m'])){
         $mode = 'receive';
         self::authenticate_by_hash($_GET['m'], $key);
@@ -417,6 +419,10 @@ class static_mirror {
       }
       self::encapsule($html, TRUE);
       return FALSE;
+    }
+    public static function requestaccess_email_html($set=array()){
+      $html = 'You have requested access to <a href="{URI|localhost}">{URI|localhost}</a>. Your access is being granted by this link: <a href="{mURI|localhost}">{mURI|}</a>';
+      return self::m($html, $set);
     }
     public static function notfound($for=NULL){
         $html = "Error 404: Page not found.";
@@ -466,8 +472,8 @@ class static_mirror {
 
         $icstr = NULL;
         if(is_bool($set)){ return $str; }
-      $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','2ndFA'=>'paper-plane',/*'registery'=>'user-plus',*/'whitelist'=>'clipboard-list','mirror'=>'closed-captioning',/*'active-mirror'=>'microscope',*/'alias'=>'object-ungroup','cache'=>'copy',/*'crontab'=>'stopwatch',*/'encapsule'=>'file-import','simple_html_dom'=>'code','patch-size'=>'dumbbell',/*'hades'=>'fire-alt',*/'composer'=>'database','composer-phar'=>'robot','hermes'=>'comment-dots'/*,'wiki'=>'file-word','cockpit'=>'mail-bulk','backup'=>'file-archive'*/);
-        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','2ndFA'=>'{URI|}/signin','registery'=>'{URI|}/register');
+      $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','2ndFA'=>'paper-plane',/*'registery'=>'user-plus',*/'whitelist'=>'clipboard-list','mirror'=>'closed-captioning',/*'active-mirror'=>'microscope',*/'alias'=>'object-ungroup','cache'=>'copy',/*'crontab'=>'stopwatch',*/'encapsule'=>'file-import','simple_html_dom'=>'code','patch-size'=>'dumbbell',/*'hades'=>'fire-alt',*/'composer'=>'database','composer-phar'=>'robot','hermes'=>'comment-dots'/*,'wiki'=>'file-word'*/,'mailbox'=>'envelope-open-text'/*,'cockpit'=>'mail-bulk','backup'=>'file-archive'*/);
+        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','mailbox'=>'{URI|}/mailbox','2ndFA'=>'{URI|}/signin','registery'=>'{URI|}/register');
         foreach($icons as $tag=>$ico){
           $href = (isset($iconsurl[$tag]) && (isset($set[$tag]) ? !($set[$tag] === FALSE) : FALSE) );
           if($href){ $icstr .= '<a href="'.(isset($set[$iconsurl[$tag]]) ? $set[$iconsurl[$tag]] : $iconsurl[$tag]).'">'; }
@@ -522,7 +528,7 @@ class static_mirror {
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file())) : 0);
-        $stat['2ndFA'] = FALSE; /*placeholder*/
+        $stat['2ndFA'] = $stat['mailbox'] = FALSE; /*placeholder*/
         $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
         $stat['registery'] = FALSE; //future feature: allow visitors to leave their email-emailaddress in mailinglist.json
         $stat['active-mirror'] = FALSE; //future feature: enables active mirroring, for example when form-data is being committed. Form-data will be forwarded.
@@ -539,7 +545,8 @@ class static_mirror {
         }
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
         $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer'));
-        $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['whitelist'] !== FALSE);
+        $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(self::mailbox_file()));
+        $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['mailbox'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ if(isset($_SERVER[$s])){ $stat[$s] = $_SERVER[$s]; } } #|HTTP_HOST
         if($json !== FALSE){
