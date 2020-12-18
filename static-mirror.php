@@ -15,6 +15,7 @@ if(basename(dirname(__DIR__, 2)) != 'vendor'){
   if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
   if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
   if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
+  if(!defined('STATIC_MIRROR_DISABLE_MAIL')){ define('STATIC_MIRROR_DISABLE_MAIL', FALSE); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
@@ -385,6 +386,7 @@ class static_mirror {
       $jsonstr = self::decrypt($m, $key);
       $data = json_decode($jsonstr, TRUE);
       $lifespan = STATIC_MIRROR_LIFESPAN;
+      /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
       $status = (is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
       /*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
       return $status;
@@ -404,6 +406,22 @@ class static_mirror {
       $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
       self::file_put_json(self::short_file(), $set);
       return $short;
+    }
+    static public function library(){
+        return "0123456789" #10
+  			."abcdefghij" #20
+  			."klmnopqrst" #30
+  			."uvwxyzABCD" #40
+  			."EFGHIJKLMN" #50
+  			."OPQRSTUVWX" #60
+  			."YZ-_+!@$%~" #70 (trustworthy up to base62 (10+26+26), backwards-compatible to base70 (pre Xnode v2.0 RC047) )
+  			."\"#&'()*,./" #80
+  			.":;<=>?[\\]^" #90
+  			."`{|}" #95
+  			."¡¢" #97
+  			."£¤¥§©«¬®°±" #107
+  			."µ¶»¼½¾¿ÆÐ×" #117
+  			."Þßæçð÷ø \t\n"; #127
     }
     static public function large_base_convert ($numstring, $frombase, $tobase, $bitlength=0, $minlength=0) {
       //*error*/ if($frombase <= 1 || $tobase <= 1){ return $numstring; }
@@ -452,15 +470,15 @@ class static_mirror {
         return FALSE;
       }
       $mode = NULL;
-      $set = self::file_get_json(self::hermes_file(), TRUE, array());
-      $key = (isset($set['key']) ? $set['key'] : FALSE);
+      $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
       if(isset($_POST['emailaddress'])){
         $mode = 'request';
         if(self::is_whitelisted($_POST['emailaddress'])){ } # check if emailaddress exists within database
         $data = array('e'=>$_POST['emailaddress'],'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
         $jsonstr = json_encode($data);
         $m = self::encrypt($jsonstr, $key);
-        $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'm'=>$m, 'l'=>strlen($m), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
+        $short = self::put_short_by_m($m);
+        $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
         /*debug*/ print '<pre>'; print_r($fs); print '</pre>';
         //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
         # email by PHPMailer $data['e'] := self::current_URI($m)
@@ -608,7 +626,7 @@ class static_mirror {
           $stat['morpheus'] = class_exists('\JSONplus\morpheus');
         }
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
-        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer'));
+        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer') && STATIC_MIRROR_DISABLE_MAIL !== TRUE);
         $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(self::mailbox_file()));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['mailbox'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
@@ -865,6 +883,7 @@ class static_mirror {
         .'</form>', $set);
     }
     public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
+        if(defined('STATIC_MIRROR_DISABLE_MAIL') && STATIC_MIRROR_DISABLE_MAIL === TRUE){ return FALSE; } //deadswitch to disable mail
         $count = 0;
         /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
         /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); }
