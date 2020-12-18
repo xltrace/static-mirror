@@ -26,6 +26,7 @@ class static_mirror {
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
     public static function mailbox_file(){ return __DIR__.'/mailbox.json'; }
     public static function whitelist_file(){ return __DIR__.'/whitelist.json'; }
+    public static function short_file(){ return __DIR__.'/short.json'; }
     public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
     public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
@@ -381,6 +382,62 @@ class static_mirror {
       /*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
       return $status;
     }
+    public static get_m_by_short($short){
+      $set = self::file_get_json(self::short_file());
+      foreach($set as $k=>$s){
+        /*clean up old listings*/ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); }
+        if($s['short'] == $short){ return $s['m']; }
+      }
+      return FALSE;
+    }
+    public static put_short_by_m($m){
+      $short = substr(self::large_base_convert(md5($m), 16, 36), 0, 8);
+      $set = self::file_get_json(self::short_file());
+      /*clean up old listings*/ foreach($set as $k=>$s){ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
+      $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
+      self::file_put_json(self::short_file(), $set);
+      return $short;
+    }
+    static public function large_base_convert ($numstring, $frombase, $tobase, $bitlength=0, $minlength=0) {
+      //*error*/ if($frombase <= 1 || $tobase <= 1){ return $numstring; }
+      /*fix*/ if(is_string($frombase)){ $frombase = (int) self::large_base_convert($frombase, 70, 10); }
+      /*fix*/ if(is_string($tobase)){ $tobase = (int) self::large_base_convert($tobase, 70, 10); }
+      //*debug*/ if($frombase == 1 || $tobase == 1) print '<!-- LBC: '.print_r(array($numstring, $frombase, $tobase, $bitlength, $minlength), TRUE).' -->';
+      /*standard behaviour*/ if(is_int($numstring) && $numstring < 256 && $frombase <= 36 && $tobase <= 36 && !($frombase == $tobase)){ $result = base_convert($numstring, $frombase, $tobase); if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; } return $result; }
+  		if($bitlength===0){ $bitlength = strlen(self::large_base_convert(self::large_base_convert($frombase-1, 10, $frombase, -1), $frombase, $tobase, -1)); }
+  		//$numstring .= ''; /*forced string fix*/
+      $numstring = (string) $numstring;
+      $chars = self::library();
+  		$tostring = substr($chars, 0, $tobase);
+  		$original = $numstring;
+  		/*CaseClass-fix*/ if($frombase<=36){$numstring = strtolower($numstring);}
+
+  		$length = strlen($numstring);
+  		$result = '';
+  		for ($i = 0; $i < $length; $i++) {
+  			$number[$i] = strpos($chars, $numstring{$i});
+  		}
+  		do {
+  			$divide = 0;
+  			$newlen = 0;
+  			for ($i = 0; $i < $length; $i++) {
+  				$divide = $divide * $frombase + $number[$i];
+  				if ($divide >= $tobase) {
+  					$number[$newlen++] = (int)($divide / $tobase);
+  					$divide = $divide % $tobase;
+  				} elseif ($newlen > 0) {
+  					$number[$newlen++] = 0;
+  				}
+  			}
+  			$length = $newlen;
+  			$result = $tostring{$divide} . $result;
+  		}
+  		while ($newlen != 0);
+  		/*CaseClass-fix*/ if($frombase<=36 && $numstring!=$original){$result = strtoupper($result);}
+  		/*fulllength compatibility-fix*/ if($bitlength > 0 && $bitlength >= strlen((string) $result) ){ $result = str_repeat($chars{1}, $bitlength-strlen((string) $result)).((string) $result); }
+      if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; }
+  		return (string) $result;
+  	}
     public static function requestaccess(){
       $s = self::status_json(FALSE);
       if(FALSE && $s['2ndFA'] === FALSE){
@@ -1039,6 +1096,15 @@ class static_mirror {
         return $json;
       }
       return FALSE;
+    }
+    public static function file_put_json($file, $set=array()){
+      if(class_exists('JSONplus')){
+        $jsonstr = \JSONplus::encode($set);
+      }
+      else{
+        $jsonstr = json_encode($set);
+      }
+      return file_put_contents($file, $jsonstr);
     }
 }
 
