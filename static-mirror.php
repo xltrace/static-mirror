@@ -13,6 +13,8 @@ if(basename(dirname(__DIR__, 2)) != 'vendor'){
   if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
   if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
   if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
+  if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
+  if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
@@ -36,6 +38,7 @@ class static_mirror {
         $this->patch = ($patch === FALSE ? $this->path : $patch);
     }
     public static function detect($for=NULL){
+        if(isset($_POST['m'])){ if(self::authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
         switch(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for))){
             case 'initial': self::initial(); break;
             case 'backup': self::backup(); break;
@@ -85,7 +88,7 @@ class static_mirror {
         $preg = '#^[\?]?(http[s]?|ftp)#';
 
         if(file_exists(self::alias_file())){
-          $db = self::file_get_json(self::alias_file());
+          $db = self::file_get_json(self::alias_file(), TRUE, array());
         } else { return FALSE; }
 
         if(isset($db[strtolower($path)])){
@@ -170,7 +173,7 @@ class static_mirror {
         $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
         if((function_exists('curl_init') && function_exists('curl_setopt') && function_exists('curl_exec')) && ((isset($G) && is_array($G) && count($G) > 0) || (isset($P) && is_array($P) && count($P) > 0))){
             //grab through CURL an uncached version, and do not cache
-            $conf = self::file_get_json(__DIR__.'/static-mirror.json');
+            $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $url = parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for;
@@ -195,7 +198,7 @@ class static_mirror {
             print self::url_patch(file_get_contents($path.$alias), $allow_patch);
         }
         else {
-            $conf = self::file_get_json(__DIR__.'/static-mirror.json');
+            $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
@@ -257,7 +260,7 @@ class static_mirror {
 
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
-        $conf = self::file_get_json(__DIR__.'/static-mirror.json');
+        $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
         $src = reset($conf);
 
         if(!is_array($conf) || strlen($src) < 1){ echo "No MIRROR configured."; return FALSE; }
@@ -344,7 +347,7 @@ class static_mirror {
     }
     public static function authenticated(){
         if(!file_exists(self::hermes_file())){ return FALSE; }
-        $json = self::file_get_json(self::hermes_file());
+        $json = self::file_get_json(self::hermes_file(), TRUE, array());
         @session_start();
         if(isset($_POST['token']) && $_POST['token'] == $json['key']){
             $_SESSION['token'] = $_POST['token'];
@@ -361,6 +364,7 @@ class static_mirror {
     public static function signoff(){
         self::authenticated();
         unset($_SESSION['token']);
+        unset($_SESSION['m']);
         $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
         self::encapsule($html, TRUE);
         return FALSE;
@@ -368,13 +372,16 @@ class static_mirror {
     //public static function process_requestaccess(){}
     public static function is_whitelisted($email=NULL){
       if(!file_exists(self::whitelist_file())){ return FALSE; }
-      $json = self::file_get_json(self::whitelist_file());
-      if(!is_array($json)){ return FALSE; }
+      $json = self::file_get_json(self::whitelist_file(), TRUE, array());
       return (in_array($email, $json) ? TRUE : FALSE);
     }
     public static function authenticate_by_hash($m=NULL, $key=NULL){
+      /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
+      /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
       /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
-      /*fix*/ if(isset($m)){ $m = str_replace(' ','+',$m); }
+      /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
+      /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = self::get_m_by_short($m)){ $m = $found; }}
+      /*fix*/ if($key === NULL){ $key = self::file_get_json(self::hermes_file(), 'key', NULL); }
       $jsonstr = self::decrypt($m, $key);
       $data = json_decode($jsonstr, TRUE);
       $lifespan = STATIC_MIRROR_LIFESPAN;
@@ -382,17 +389,17 @@ class static_mirror {
       /*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
       return $status;
     }
-    public static get_m_by_short($short){
-      $set = self::file_get_json(self::short_file());
+    public static function get_m_by_short($short){
+      $set = self::file_get_json(self::short_file(), TRUE, array());
       foreach($set as $k=>$s){
         /*clean up old listings*/ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); }
         if($s['short'] == $short){ return $s['m']; }
       }
       return FALSE;
     }
-    public static put_short_by_m($m){
-      $short = substr(self::large_base_convert(md5($m), 16, 36), 0, 8);
-      $set = self::file_get_json(self::short_file());
+    public static function put_short_by_m($m){
+      $short = substr(self::large_base_convert(md5($m), 16, STATIC_MIRROR_SHORT_BASE), 0, STATIC_MIRROR_SHORT_LENGTH);
+      $set = self::file_get_json(self::short_file(), TRUE, array());
       /*clean up old listings*/ foreach($set as $k=>$s){ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
       $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
       self::file_put_json(self::short_file(), $set);
@@ -445,7 +452,7 @@ class static_mirror {
         return FALSE;
       }
       $mode = NULL;
-      $set = self::file_get_json(self::hermes_file());
+      $set = self::file_get_json(self::hermes_file(), TRUE, array());
       $key = (isset($set['key']) ? $set['key'] : FALSE);
       if(isset($_POST['emailaddress'])){
         $mode = 'request';
@@ -559,13 +566,13 @@ class static_mirror {
         $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
         $stat['hermes'] = (file_exists(self::hermes_file()) && $stat['curl']);
         if($stat['hermes'] === TRUE){
-          $hermes = self::file_get_json(self::hermes_file());
+          $hermes = self::file_get_json(self::hermes_file(), TRUE, array());
           $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
         }
         $stat['configured'] = file_exists(self::static_mirror_file());
         $stat['alias'] = file_exists(self::alias_file());
         if($stat['alias'] === TRUE){
-          $alias = self::file_get_json(self::alias_file());
+          $alias = self::file_get_json(self::alias_file(), TRUE, array());
           if(isset($alias['#'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['#']); }
           if(isset($alias['*'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['*']); }
           $stat['alias-count'] = count($alias);
@@ -573,18 +580,18 @@ class static_mirror {
           $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
           $stat['alias-fingerprint'] = md5_file(self::alias_file());
         }
-        $stat['mirror'] = count(self::file_get_json(self::static_mirror_file()));
+        $stat['mirror'] = count(self::file_get_json(self::static_mirror_file(), TRUE, array()));
         $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
         $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
-        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file())) : FALSE);
+        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file(), TRUE, array())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
-        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file())) : 0);
+        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file(), TRUE, array())) : 0);
         $stat['2ndFA'] = $stat['mailbox'] = FALSE; /*placeholder*/
         $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
         $stat['registery'] = FALSE; //future feature: allow visitors to leave their email-emailaddress in mailinglist.json
@@ -722,7 +729,7 @@ class static_mirror {
               if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
                 file_get_contents($ns.'static-mirror.php?for=initial');
               }
-              $slaves = self::file_get_json(self::slaves_file());
+              $slaves = self::file_get_json(self::slaves_file(), TRUE, array());
               /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
               if(!in_array($ns, $slaves)){
                 if(self::url_is_valid_status_json($ns)){
@@ -747,7 +754,7 @@ class static_mirror {
         //edit slaves.json = [ url, url ]
         $result = NULL;
         if(isset($_POST['raw'])){ //duplicate static-mirror.php to $path
-          $json = self::file_get_json(self::hermes_file());
+          $json = self::file_get_json(self::hermes_file(), TRUE, array());
           $tokens = (isset($_POST['tokens']) && strlen($_POST['tokens'])>0 ? $_POST['tokens'] : $json['key']);
           $result = self::decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
         }
@@ -780,7 +787,7 @@ class static_mirror {
     public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
         if(!is_array($list) || count($list) == 0){
             if(!file_exists(self::slaves_file())){ return FALSE; }
-            $list = self::file_get_json(self::slaves_file());
+            $list = self::file_get_json(self::slaves_file(), TRUE, array());
         }
         $bool = TRUE; $json = array();
         foreach($list as $i=>$url){
@@ -861,7 +868,7 @@ class static_mirror {
         $count = 0;
         /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
         /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); }
-        $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE), (is_array($set) ? $set : array()));
+        $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         //if(self::authenticated() !== TRUE){ return FALSE/*self::signin()*/; }
         if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
           $message = (file_exists($message) ? file_get_contents($message) : NULL); //grab $message
@@ -967,7 +974,7 @@ class static_mirror {
         if(!file_exists(self::hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
         # $path + $url + $key
-        $set = self::file_get_json(self::hermes_file());
+        $set = self::file_get_json(self::hermes_file(), TRUE, array());
         $url = (isset($set['url']) ? $set['url'] : self::hermes_default_remote());
         $key = (isset($set['key']) ? $set['key'] : FALSE);
         $message = array(
@@ -1077,13 +1084,13 @@ class static_mirror {
         }
         return ($implode === TRUE ? implode('&', $set) : $set);
     }
-    public static function file_get_json($file, $as_array=TRUE){
+    public static function file_get_json($file, $as_array=TRUE, $def=FALSE){
       /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
       if(is_array($file)){
         $set = FALSE;
         foreach($file as $i=>$f){
-          $buffer = self::file_get_json($f, $as_array);
-          if($buffer !== FALSE && ($as_array === TRUE ? is_array($buffer) : TRUE)){
+          $buffer = self::file_get_json($f, $as_array, $def);
+          if($buffer !== $def && ($as_array === TRUE ? is_array($buffer) : TRUE)){
             $set = array_merge(($as_array !== TRUE ? array($buffer) : $buffer), (!is_array($set) ? array() : $set));
           }
         }
@@ -1092,10 +1099,16 @@ class static_mirror {
       $puf = parse_url($file);
       if((is_array($puf) && !isset($puf['schema']) && !isset($puf['host']) ? file_exists($file) : $puf !== FALSE )){
         $raw = file_get_contents($file);
-        $json = json_decode($raw, $as_array);
-        return $json;
+        $json = json_decode($raw, (is_bool($as_array) ? $as_array : TRUE));
+        if(!is_bool($as_array)){
+          if(isset($json[$as_array])){ return $json[$as_array]; }
+          else{ return $def; }
+        }
+        else{
+          return $json;
+        }
       }
-      return FALSE;
+      return $def;
     }
     public static function file_put_json($file, $set=array()){
       if(class_exists('JSONplus')){
