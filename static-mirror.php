@@ -15,7 +15,8 @@ if(basename(dirname(__DIR__, 2)) != 'vendor'){
   if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
   if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
   if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
-  if(!defined('STATIC_MIRROR_DISABLE_MAIL')){ define('STATIC_MIRROR_DISABLE_MAIL', TRUE); }
+  if(!defined('STATIC_MIRROR_ALLOW_MAIL')){ define('STATIC_MIRROR_ALLOW_MAIL', FALSE); }
+  if(!defined('HERMES_REMOTE')){ define('HERMES_REMOTE', 'http://fertilizer.wyaerda.nl/hermes/remote.php'); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
@@ -30,7 +31,7 @@ class static_mirror {
     public static function mailbox_file(){ return __DIR__.'/mailbox.json'; }
     public static function whitelist_file(){ return __DIR__.'/whitelist.json'; }
     public static function short_file(){ return __DIR__.'/short.json'; }
-    public static function hermes_default_remote(){ return 'http://fertilizer.wyaerda.nl/hermes/remote.php'; }
+    public static function hermes_default_remote(){ return HERMES_REMOTE; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
     public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
 
@@ -40,7 +41,7 @@ class static_mirror {
     }
     public static function detect($for=NULL){
         if(isset($_POST['m'])){ if(self::authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
-        if(defined('HADES_MODULES')){
+        if(defined('HADES_MODULES') && !in_array(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for)), array('initial','update','upgrade','signin','signoff','status.json'))){
           $l = explode('|', HADES_MODULES);
           foreach($l as $i=>$mod){
             if(class_exists($mod) && method_exists($mod, 'detect')){
@@ -362,7 +363,9 @@ class static_mirror {
             $_SESSION['token'] = $_POST['token'];
             return TRUE;
         }
+        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; return TRUE; }
         if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
+        elseif(isset($_SESSION['m'])){ return self::authenticate_by_hash($_SESSION['m']); }
         return FALSE;
     }
     public static function signin(){
@@ -426,10 +429,10 @@ class static_mirror {
     }
     public static function get_m_by_short($short){
       $set = self::file_get_json(self::short_file(), TRUE, array());
-      foreach($set as $k=>$s){
+      if(is_array($set)){foreach($set as $k=>$s){
         /*clean up old listings*/ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); }
         if($s['short'] == $short){ return $s['m']; }
-      }
+      }}
       return FALSE;
     }
     public static function put_short_by_m($m){
@@ -437,6 +440,7 @@ class static_mirror {
       $set = self::file_get_json(self::short_file(), TRUE, array());
       /*clean up old listings*/ foreach($set as $k=>$s){ if(isset($s['t']) && $s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
       $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
+      /*fix*/ $ns = array(); foreach($set as $k=>$s){ $ns[] = $s; } $set = $ns;
       self::file_put_json(self::short_file(), $set);
       return $short;
     }
@@ -497,7 +501,7 @@ class static_mirror {
   		return (string) $result;
   	}
     public static function requestaccess($emailaddress=NULL){
-      /*fix*/ if($emailaddress === NULL){ $emailaddress = $_POST['emailaddress']; }
+      /*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
       $s = self::status_json(FALSE);
       if(FALSE && $s['2ndFA'] === FALSE){
         self::encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', TRUE);
@@ -666,7 +670,7 @@ class static_mirror {
           $stat['morpheus'] = class_exists('\JSONplus\morpheus');
         }
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
-        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer') && STATIC_MIRROR_DISABLE_MAIL !== TRUE);
+        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer') && STATIC_MIRROR_ALLOW_MAIL !== FALSE);
         $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(self::mailbox_file()));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['mailbox'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
@@ -924,7 +928,7 @@ class static_mirror {
         .'</form>', $set);
     }
     public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
-        if(defined('STATIC_MIRROR_DISABLE_MAIL') && STATIC_MIRROR_DISABLE_MAIL === TRUE){ return FALSE; } //deadswitch to disable mail
+        if(defined('STATIC_MIRROR_ALLOW_MAIL') && STATIC_MIRROR_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
         $count = 0;
         /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
         /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); }
@@ -1182,8 +1186,8 @@ class static_mirror {
 }
 
 if(basename(dirname(__DIR__, 2)) != 'vendor'){
-  //phpinfo(32); $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
-  /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['REQUEST_URI']) ? substr($_SERVER['REQUEST_URI'],1) : NULL);}
+  //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
+  /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
   \XLtrace\static_mirror::detect($_GET['for']);
 }
 ?>
