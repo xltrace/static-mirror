@@ -15,7 +15,7 @@ if(basename(dirname(__DIR__, 2)) != 'vendor'){
   if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
   if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
   if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
-  if(!defined('STATIC_MIRROR_DISABLE_MAIL')){ define('STATIC_MIRROR_DISABLE_MAIL', FALSE); }
+  if(!defined('STATIC_MIRROR_DISABLE_MAIL')){ define('STATIC_MIRROR_DISABLE_MAIL', TRUE); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
@@ -40,24 +40,32 @@ class static_mirror {
     }
     public static function detect($for=NULL){
         if(isset($_POST['m'])){ if(self::authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
+        if(defined('HADES_MODULES')){
+          $l = explode('|', HADES_MODULES);
+          foreach($l as $i=>$mod){
+            if(class_exists($mod) && method_exists($mod, 'detect')){
+              $buffer = $mod::detect($for);
+              if($buffer !== FALSE){ self::encapsule($buffer, TRUE); return TRUE; }
+            }
+          }
+        }
         switch(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for))){
             case 'initial': self::initial(); break;
             case 'backup': self::backup(); break;
             case 'update': self::update(); break;
             case 'upgrade': self::upgrade(); break;
-            case 'r': case 'ra': case '2ndfa': case 'request-access': self::requestaccess(); break;
             case 'signin': case 'authenticate': case 'login': self::signin(); break;
-            case 'signoff': self::signoff(); break;
+            case 'signoff': case 'signout': case 'logout': self::signoff(); break;
             case 'configure': self::configure(); break;
             case 'management': self::management(); break;
             case 'duplicate': self::duplicate(); break;
             case 'decrypt': self::decrypt_module(); break;
             case 'hit': self::hermes_hit(); break;
             case 'mailbox': self::mailbox(); break;
-            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::static_mirror_file()):
+            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::mailbox_file()): case basename(self::short_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status': self::status(); return FALSE; break;
-            case 'status.json': header('content-type: application/json'); self::status_json(); return FALSE; break;
+            case 'status.json': header('content-type: application/json'); self::status_json(); return TRUE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     if(!self::alias($for, TRUE)){ self::grab($for); }
@@ -80,7 +88,7 @@ class static_mirror {
                     return TRUE;
                 }
         }
-        return TRUE;
+        return FALSE;
     }
     public static function alias($path=NULL, $force=FALSE){
         /*fix*/ if($path === NULL){ $path = $_SERVER['REQUEST_URI']; }
@@ -358,9 +366,13 @@ class static_mirror {
         return FALSE;
     }
     public static function signin(){
-        $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
-        self::encapsule($html, TRUE);
-        return FALSE;
+        $s = self::status_json(FALSE);
+        if($s['2ndFA'] === TRUE){ return self::requestaccess(); }
+        else{
+          $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
+          self::encapsule($html, TRUE);
+          return FALSE;
+        }
     }
     public static function signoff(){
         self::authenticated();
@@ -388,8 +400,29 @@ class static_mirror {
       $lifespan = STATIC_MIRROR_LIFESPAN;
       /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
       $status = (is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
-      /*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
+      //*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
       return $status;
+    }
+    public static function get_user_emailaddress(){ return self::get_element_from_2ndfa('e'); }
+    public static function get_element_from_2ndfa($el='e', $m=NULL, $key=NULL){
+      /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
+      /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
+      /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
+      if($m === NULL || strlen($m) < 1){ return FALSE; }
+      /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
+      /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = self::get_m_by_short($m)){ $m = $found; }}
+      /*fix*/ if($key === NULL){ $key = self::file_get_json(self::hermes_file(), 'key', NULL); }
+      $jsonstr = self::decrypt($m, $key);
+      $data = json_decode($jsonstr, TRUE);
+      switch(strtolower($el)){
+        case 'i': case 'ip': return $data['i']; break;
+        case 'iso8901': return date('c', $data['t']); break;
+        case 't': case 'timestamp': return $data['t']; break;
+        case 'e': case 'email': case 'emailaddress': return $data['e']; break;
+        default:
+          //future feature: grab additional info from addressbook (filter by emailaddress from 2ndFA)
+      }
+      return FALSE;
     }
     public static function get_m_by_short($short){
       $set = self::file_get_json(self::short_file(), TRUE, array());
@@ -402,7 +435,7 @@ class static_mirror {
     public static function put_short_by_m($m){
       $short = substr(self::large_base_convert(md5($m), 16, STATIC_MIRROR_SHORT_BASE), 0, STATIC_MIRROR_SHORT_LENGTH);
       $set = self::file_get_json(self::short_file(), TRUE, array());
-      /*clean up old listings*/ foreach($set as $k=>$s){ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
+      /*clean up old listings*/ foreach($set as $k=>$s){ if(isset($s['t']) && $s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
       $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
       self::file_put_json(self::short_file(), $set);
       return $short;
@@ -463,7 +496,8 @@ class static_mirror {
       if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; }
   		return (string) $result;
   	}
-    public static function requestaccess(){
+    public static function requestaccess($emailaddress=NULL){
+      /*fix*/ if($emailaddress === NULL){ $emailaddress = $_POST['emailaddress']; }
       $s = self::status_json(FALSE);
       if(FALSE && $s['2ndFA'] === FALSE){
         self::encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', TRUE);
@@ -471,18 +505,21 @@ class static_mirror {
       }
       $mode = NULL;
       $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
-      if(isset($_POST['emailaddress'])){
+      if(isset($emailaddress)){
         $mode = 'request';
-        if(self::is_whitelisted($_POST['emailaddress'])){ } # check if emailaddress exists within database
-        $data = array('e'=>$_POST['emailaddress'],'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
-        $jsonstr = json_encode($data);
-        $m = self::encrypt($jsonstr, $key);
-        $short = self::put_short_by_m($m);
-        $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
-        /*debug*/ print '<pre>'; print_r($fs); print '</pre>';
-        //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
-        # email by PHPMailer $data['e'] := self::current_URI($m)
-        self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $_POST['emailaddress'], $fs);
+        if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
+          $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
+          $jsonstr = json_encode($data);
+          $m = self::encrypt($jsonstr, $key);
+          $short = self::put_short_by_m($m);
+          $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
+          /*debug*/ print '<pre>'; print_r($fs); print '</pre>';
+          //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
+          # email by PHPMailer $data['e'] := self::current_URI($m)
+          self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $emailaddress, $fs);
+        } else { //emailaddress is not whitelisted!!
+          $mode = 'request-failed';
+        }
       } elseif(isset($_GET['m'])){
         $mode = 'receive';
         self::authenticate_by_hash($_GET['m'], $key);
@@ -495,6 +532,9 @@ class static_mirror {
         case 'request':
           $html = '(request made, a mail has been sent)';
           break;
+        case 'request-failed':
+          $html = '(request failed)';
+          break;
         default:
           $html = '(insert emailaddress form)';
           $html = '<form method="POST"><table><tr><td>Email address:</td><td><input name="emailaddress" type="email"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Request Access" /></td></tr></table></form>';
@@ -503,7 +543,7 @@ class static_mirror {
       return FALSE;
     }
     public static function requestaccess_email_html($set=array()){
-      $html = 'You have requested access to <a href="{URI|localhost}">{URI|localhost}</a>. Your access is being granted by this link: <a href="{mURI|localhost}">{mURI|}</a>';
+      $html = 'You have requested access to <a href="{URI|localhost}">{URI|localhost}</a>. Your access is being granted by this link: <a href="{sURI|localhost}">{sURI|}</a>';
       return self::m($html, $set);
     }
     public static function notfound($for=NULL){
@@ -606,9 +646,9 @@ class static_mirror {
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
         $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file(), TRUE, array())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
-        $stat['hades'] = FALSE; //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
+        $stat['hades'] = (defined('HADES_MODULES') && TRUE); //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
-        $stat['wiki'] = FALSE; //future feature: (depends on JSONplus/markdown)
+        $stat['wiki'] = ($stat['hades'] && class_exists('\XLtrace\hades\module\wiki')); //future feature: HADES module WIKI (depends on JSONplus/markdown)
         $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file(), TRUE, array())) : 0);
         $stat['2ndFA'] = $stat['mailbox'] = FALSE; /*placeholder*/
         $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
@@ -657,6 +697,7 @@ class static_mirror {
         else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
       }
       /*fix*/ if(is_array($set)){ $uri = array_merge($uri, $set); }
+      /*fix*/ if(isset($uri['query']['for']) && (!isset($uri['path']) || strlen($uri['path']) < 1)){ $uri['path'] = $uri['query']['for']; unset($uri['query']['for']); }
       return self::build_url($uri);
     }
     public static function configure(){
@@ -1141,7 +1182,8 @@ class static_mirror {
 }
 
 if(basename(dirname(__DIR__, 2)) != 'vendor'){
-  /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = NULL;}
+  //phpinfo(32); $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
+  /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['REQUEST_URI']) ? substr($_SERVER['REQUEST_URI'],1) : NULL);}
   \XLtrace\static_mirror::detect($_GET['for']);
 }
 ?>
