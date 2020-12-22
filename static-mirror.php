@@ -26,6 +26,7 @@ class static_mirror {
 
     public static function static_mirror_file(){ return __DIR__.'/static-mirror.json'; }
     public static function hermes_file(){ return __DIR__.'/hermes.json'; }
+    public static function addressbook_file(){ return __DIR__.'/addressbook.json'; }
     public static function alias_file(){ return __DIR__.'/alias.json'; }
     public static function slaves_file(){ return __DIR__.'/slaves.json'; }
     public static function mailbox_file(){ return __DIR__.'/mailbox.json'; }
@@ -63,7 +64,7 @@ class static_mirror {
             case 'decrypt': self::decrypt_module(); break;
             case 'hit': self::hermes_hit(); break;
             case 'mailbox': self::mailbox(); break;
-            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::slaves_file()): case basename(self::mailbox_file()): case basename(self::short_file()): case basename(self::static_mirror_file()):
+            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::addressbook_file()): case basename(self::slaves_file()): case basename(self::mailbox_file()): case basename(self::short_file()): case basename(self::static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status': self::status(); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return TRUE; break;
@@ -648,6 +649,7 @@ class static_mirror {
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
+        $stat['addressbook'] = (file_exists(self::addressbook_file()) ? count(self::file_get_json(self::addressbook_file(), TRUE, array())) : FALSE);
         $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file(), TRUE, array())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = (defined('HADES_MODULES') && TRUE); //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
@@ -904,34 +906,141 @@ class static_mirror {
       }
       return $str;
     }
+    public static function emailaddress_array2str($to=array()){
+        $str = NULL; $i = 0;
+        if(is_array($to)){foreach($to as $k=>$t){
+          if($i !== 0){ $str .= ', ';}
+          if(is_array($t) && isset($t['email'])){
+            $str .= (isset($t['name']) ? '"'.$t['name'].'" <'.$t['email'].'>' : $t['email']);
+          }
+          else{ $str .= $t; }
+          $i++;
+        }}
+        return $str;
+    }
+    public static function emailaddress_str2array($str=NULL){
+        $emailpattern = '[_a-zA-Z0-9-]+(\.[_a-zA-Z0-9-]+)*@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z]{2,})';
+        $to = $set = array();
+        preg_match_all('#'.$emailpattern.'#', $str, $set);
+        foreach($set[0] as $i=>$e){
+          $to[$i] = array('email' => $e); $str = str_replace($e, '@{'.$i.'}', $str);
+        }
+        preg_match_all('#(\"([^\"]+)\"\s*\<\@\{([0-9]+)\}\>)#', $str, $set);
+        foreach($set[3] as $j=>$m){
+          $to[(int) $m]['name'] = $set[2][$j];
+        }
+        return $to;
+    }
+    public static function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){
+        $set = ($set === TRUE ? self::file_get_json(self::addressbook_file(), TRUE, array()) : (is_array($set) ? $set : array()) );
+        foreach($to as $i=>$t){
+          if(is_string($t)){ $to[$i] = self::array_filter($set, array($tag=>$t), 0); }
+          elseif(is_array($t) && isset($t[$tag])){ $m = self::array_filter($set, array($tag=>$t[$tag]), 0); $to[$i] = array_merge($t, (is_array($m) ? $m : array())); }
+        }
+        return $to;
+    }
+    public static function array_filter($set=array(), $match=array(), $limit=array()){
+      $delimiter = array('('=>')','{'=>'}','['=>']','<'=>'>'); foreach(array('#','/','@','+','%') as $x){ $delimiter[$x] = $x; }
+      $filter = array();
+      foreach($set as $k=>$s){
+          foreach($match as $x=>$y){
+            if($y == NULL || preg_match('#^(true|false|null)$#i', $y)){
+              switch(strtolower($y)){
+                case 'true':
+                  if(!isset($s[$x])){ unset($set[$k]); }
+                  elseif(is_bool($s[$x]) && $s[$x] !== TRUE){ unset($set[$k]); }
+                  break;
+                case 'false':
+                  if(isset($s[$x]) && $s[$x] !== FALSE){ unset($set[$k]); }
+                  break;
+                default: //case NULL
+                  if(isset($s[$x]) && !($s[$x] == NULL)){ unset($set[$k]); }
+              }
+            }
+            elseif(isset($s[$x])){
+              if(!in_array($x, $filter)){$filter[] = $x;}
+              switch(substr($y, 0, 1)){
+                case '#': case '/': case '@': case '+': case '$': case '{': case '(': case '[': case '<':
+                  if(preg_match('@\\'.$delimiter[substr($y, 0, 1)].'(i)?$@', $y)){
+                    if(!preg_match($y, $s[$x])){
+                      unset($set[$k]);
+                    }
+                    break; //if not matched, uses default test
+                  }
+                default:
+                  if($s[$x] != $y){
+                    unset($set[$k]);
+                  }
+              }
+            }
+            else{ //remove when $x is not set in $s
+              if(in_array($x, $filter)){ unset($set[$k]); }
+            }
+          }
+      }
+      if(is_int($limit)){ if($limit == 0){ return reset($set); } reset($set); for($i=0;$i<=$limit;$i++){ next($set); } return current($set); }
+      return $set;
+    }
+    public static function tag_array_unique($tag="email", $to=array(), $merge=array()){
+        $set = array_merge($to, $merge);
+        $list = array();
+        foreach($set as $i=>$a){
+          if(isset($a[$tag])){
+            if(in_array($a[$tag], $list)){
+              $j = array_search($a[$tag], $list);
+              $set[$j] = array_merge($set[$j], $set[$i]);
+              unset($set[$i]);
+            }
+            $list[$i] = $a[$tag];
+          }
+        }
+        return $set;
+    }
     public static function mailbox(){
+        $note = NULL;
         if(self::authenticated() !== TRUE){ return self::signin(); }
         $s = self::status_json(FALSE);
         if($s['PHPMailer'] === false){ return self::encapsule('Unable to send email.', TRUE); }
         $set = array();
+        /*settings*/ $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
         $set['title'] = (isset($_POST['title']) ? $_POST['title'] : (isset($_GET['title']) ? $_GET['title'] : NULL));
-        $to = (isset($_POST['email']) && isset($_POST['name']) ? array('email' => $_POST['email'], 'name'=> $_POST['name']) : (isset($_POST['raw']) ? $_POST['raw'] : NULL));
-        $note = self::send_mail($set['title'], $set['message'], $to, TRUE);
+        // note you should proces $_POST['raw'] for commandline execution
+        foreach(array('to','cc','bcc','reply-to','from') as $m){
+          $set[$m] = (isset($_POST[$m]) ? array_merge((isset($set[$m]) && is_array($set[$m]) ? $set[$m] : array()), self::emailaddress_str2array($_POST[$m])) : (isset($set[$m]) ? $set[$m] : array() ));
+          $set[$m] = self::tag_array_unique('email', $set[$m]);
+          $set[$m] = self::emailaddress_autocomplete($set[$m]);
+          if(in_array($m, array('reply-to','from'))){ $set[$m] = end($set[$m]); }
+          $set[$m.'Str'] = self::emailaddress_array2str($set[$m]);
+        }
+        //*debug*/ print '<pre>'; print_r($set); print '</pre>';
 
-        $html = self::compose_mail_html(array_merge($set, (is_array($to) ? $to : array()), array('notification'=>$note) ));
+        /*settings*/ $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
+        $note = self::send_mail($set);
+
+        //*debug*/ print '<pre>'; print_r($_POST); print_r($set); print '</pre>';
+        $html = self::compose_mail_html(array_merge($set, array('notification'=>$note) ));
         self::encapsule($html, TRUE);
         return FALSE;
     }
     public static function compose_mail_html($set=array()){
-      return self::m('{notification|}<form method="POST">'
-        .'<label for="name">To: <input type="text" name="name" id="name" value="{name|}" placeholder="Name"></label>'
-        .'<label for="email"> &lt;<input type="email" name="email" id="email" value="{email|}" placeholder="Emailaddress">&gt;</label><br>'
-        .'<label for="title">Title: <input type="text" name="title" id="title" value="{title|}" placeholder="Title"></label><br>'
-        .'<label for="message">Message: <textarea name="message" id="message" rows="8" cols="20" class="wysiwyg html">{message|}</textarea></label><br>'
-        .'<input type="submit" value="Send">'
+      return self::m('{notification|}<form method="POST" class="compose-mail">'
+        .'<style>form.compose-mail label span { display: inline-block; min-width: 125px; } form.compose-mail span.fw { display: inline-block; width: 575px; } form.compose-mail textarea, form.compose-mail input[name=title] { width: 450px; height: 40px; min-height: 40px; box-sizing: border-box; margin: 2px; padding: 5px 8px; font-family: arial; font-size: 11pt; } form.compose-mail textarea { padding: 10px 14px; resize: vertical; } form.compose-mail textarea[name=message] { height: 200px; } form.compose-mail input[type=submit], form.compose-mail span.fw input { float: right; }</style>'
+
+        .'<label for="to"><span>To: </span><textarea name="to" id="to" rows="1" cols="20" class="Emailaddress">{toStr|}</textarea></label><br>'
+        .'<label for="cc"><span>CC: </span><textarea name="cc" id="cc" rows="1" cols="20" class="Emailaddress">{ccStr|}</textarea></label><br>'
+        .'<label for="bcc"><span>BCC: </span><textarea name="bcc" id="bcc" rows="1" cols="20" class="Emailaddress">{bccStr|}</textarea></label><br>'
+
+        .'<label for="title"><span>Title: </span><input type="text" name="title" id="title" value="{title|}" placeholder="Title"></label><br>'
+        .'<label for="message"><span>Message: </span><textarea name="message" id="message" rows="8" cols="20" class="wysiwyg html">{message|}</textarea></label><br>'
+        .'<span class="fw"><input type="submit" name="action" value="Send"/> <input type="button" name="action" value="Preview"/></span>'
         .'</form>', $set);
     }
     public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
         if(defined('STATIC_MIRROR_ALLOW_MAIL') && STATIC_MIRROR_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
         $count = 0;
         /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
-        /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); }
+        /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); $message = (isset($set['message']) ? $set['message'] : $message); if($to === FALSE && isset($set['to'])){ $to = $set['to']; } }
         $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         //if(self::authenticated() !== TRUE){ return FALSE/*self::signin()*/; }
         if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
@@ -943,8 +1052,8 @@ class static_mirror {
             //case 'html': default: //do nothing to change input
           }
         }
-        /* json / single or non addressy fix */ if(!is_array($to)){ if(is_string($to)){ $to = (preg_match('#^\s*[\[\{]#', $to) && preg_match('#[\]\}]\s*$#', $to) ? json_decode($to, TRUE) : array($to)); } else{ $to = array(); } }
-        /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']);}
+        /* json / single or non addressy fix */ if(!is_array($to)){ if(is_string($to)){ $to = (preg_match('#^\s*[\[\{]#', $to) && preg_match('#[\]\}]\s*$#', $to) ? json_decode($to, TRUE) : self::emailaddress_str2array($to)); } else{ $to = array(); } }
+        /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']); }
         foreach($to as $i=>$t){
           if(is_string($t)){ $t = array('email'=>trim($t)); }
           if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && self::is_emailaddress($t['email'])){

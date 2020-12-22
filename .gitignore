@@ -6,7 +6,9 @@ composer.lock
 alias.json
 hermes.json
 slaves.json
+addressbook.json
 whitelist.json
 mailbox.json
 static-mirror.json
+short.json
 .htaccess
