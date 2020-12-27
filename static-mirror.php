@@ -1,6 +1,6 @@
 <?php
 namespace XLtrace;
-if(basename(dirname(__DIR__, 2)) != 'vendor'){
+if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   ini_set('display_errors', 1);
   ini_set('display_startup_errors', 1);
   error_reporting(E_ALL);
@@ -518,7 +518,7 @@ class static_mirror {
           $m = self::encrypt($jsonstr, $key);
           $short = self::put_short_by_m($m);
           $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
-          /*debug*/ print '<pre>'; print_r($fs); print '</pre>';
+          //*debug*/ print '<pre>'; print_r($fs); print '</pre>';
           //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
           # email by PHPMailer $data['e'] := self::current_URI($m)
           self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $emailaddress, $fs);
@@ -1103,10 +1103,10 @@ class static_mirror {
             foreach(array('from'=>'setFrom','to'=>'addAddress','reply-to'=>'addReplyTo','cc'=>'addCC','bcc'=>'addBCC') as $v=>$m){
               if(isset($set[$v])){
                 if(is_string($set[$v]) || (is_array($set[$v]) && isset($set[$v]['email'])) ){ $set[$v] = array($set[$v]); }
-                foreach($set[$v] as $j=>$w){
+                if(is_array($set[$v])){foreach($set[$v] as $j=>$w){
                   if(is_array($w) && isset($w['email']) && self::is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
                   elseif(is_string($w) && self::is_emailaddress($w)){ $mail->$m($w); }
-                }
+                }}
               }
             }
             if(isset($set['confirmreadingto']) && self::is_emailaddress($set['confirmreadingto'])){
@@ -1294,7 +1294,7 @@ class static_mirror {
     }
 }
 
-if(basename(dirname(__DIR__, 2)) != 'vendor'){
+if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
   /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
   \XLtrace\static_mirror::detect($_GET['for']);
