@@ -357,7 +357,7 @@ class static_mirror {
         if(isset($_GET['all'])){ self::run_slaves('backup'); }
         return FALSE;
     }
-    public static function authenticated(){
+    public static function authenticated($email=NULL){
         if(!file_exists(self::hermes_file())){ return FALSE; }
         $json = self::file_get_json(self::hermes_file(), TRUE, array());
         @session_start();
@@ -365,9 +365,9 @@ class static_mirror {
             $_SESSION['token'] = $_POST['token'];
             return TRUE;
         }
-        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; return TRUE; }
+        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'], NULL, $mail)){ $_SESSION['m'] = $_GET['m']; return TRUE; }
         if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
-        elseif(isset($_SESSION['m'])){ return self::authenticate_by_hash($_SESSION['m']); }
+        elseif(isset($_SESSION['m'])){ return self::authenticate_by_hash($_SESSION['m'], NULL, $email); }
         return FALSE;
     }
     public static function signin(){
@@ -393,7 +393,7 @@ class static_mirror {
       $json = self::file_get_json(self::whitelist_file(), TRUE, array());
       return (in_array($email, $json) ? TRUE : FALSE);
     }
-    public static function authenticate_by_hash($m=NULL, $key=NULL){
+    public static function authenticate_by_hash($m=NULL, $key=NULL, $email=NULL){
       /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
       /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
       /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
@@ -404,7 +404,9 @@ class static_mirror {
       $data = json_decode($jsonstr, TRUE);
       $lifespan = STATIC_MIRROR_LIFESPAN;
       /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
-      $status = (is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
+      $ebool = TRUE;
+      if($email !== NULL){ $ebool = (isset($data['e']) && $data['e'] == $email); }
+      $status = ($ebool && is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
       //*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
       return $status;
     }
