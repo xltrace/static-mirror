@@ -70,10 +70,12 @@ class static_mirror {
             case 'status': self::status(); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return TRUE; break;
             default:
-                $smdb = self::file_get_json(self::static_mirror_file(), TRUE, array());
-                if(isset($smdb[$for])){ self::update($smdb[$for]); return TRUE; }
                 if(isset($for) && strlen($for) > 0){
-                    if(!self::alias($for, TRUE)){ self::grab($for); }
+                    if(!self::alias($for, TRUE)){
+                        $smdb = self::file_get_json(self::static_mirror_file(), TRUE, array());
+                        if(isset($smdb[$for])){ self::update($for); return TRUE; }
+                        self::grab($for);
+                    }
                     return TRUE;
                 }
                 else{
