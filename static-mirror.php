@@ -16,6 +16,7 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
   if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
   if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
   if(!defined('STATIC_MIRROR_ALLOW_MAIL')){ define('STATIC_MIRROR_ALLOW_MAIL', FALSE); }
+  if(!defined('STATIC_MIRROR_BASE')){ define('STATIC_MIRROR_BASE', __DIR__); }
   if(!defined('HERMES_REMOTE')){ define('HERMES_REMOTE', 'http://fertilizer.wyaerda.nl/hermes/remote.php'); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
@@ -24,14 +25,14 @@ class static_mirror {
     var $path;
     var $patch;
 
-    public static function static_mirror_file(){ return __DIR__.'/static-mirror.json'; }
-    public static function hermes_file(){ return __DIR__.'/hermes.json'; }
-    public static function addressbook_file(){ return __DIR__.'/addressbook.json'; }
-    public static function alias_file(){ return __DIR__.'/alias.json'; }
-    public static function slaves_file(){ return __DIR__.'/slaves.json'; }
-    public static function mailbox_file(){ return __DIR__.'/mailbox.json'; }
-    public static function whitelist_file(){ return __DIR__.'/whitelist.json'; }
-    public static function short_file(){ return __DIR__.'/short.json'; }
+    public static function static_mirror_file(){ return STATIC_MIRROR_BASE.'/static-mirror.json'; }
+    public static function hermes_file(){ return STATIC_MIRROR_BASE.'/hermes.json'; }
+    public static function addressbook_file(){ return STATIC_MIRROR_BASE.'/addressbook.json'; }
+    public static function alias_file(){ return STATIC_MIRROR_BASE.'/alias.json'; }
+    public static function slaves_file(){ return STATIC_MIRROR_BASE.'/slaves.json'; }
+    public static function mailbox_file(){ return STATIC_MIRROR_BASE.'/mailbox.json'; }
+    public static function whitelist_file(){ return STATIC_MIRROR_BASE.'/whitelist.json'; }
+    public static function short_file(){ return STATIC_MIRROR_BASE.'/short.json'; }
     public static function hermes_default_remote(){ return HERMES_REMOTE; }
     public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
     public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
@@ -148,7 +149,7 @@ class static_mirror {
 
         /*
         $log = $for."\t".$alias."\n";
-        $handle = fopen(__DIR__.'/gather.log', 'a');
+        $handle = fopen(STATIC_MIRROR_BASE.'/gather.log', 'a');
         fwrite($handle, $log);
         fclose($handle);
         // print $log; exit;
@@ -557,7 +558,7 @@ class static_mirror {
         self::encapsule($html, TRUE);
         return FALSE;
     }
-    public static function get_size($path=__DIR__, $recursive=FALSE){
+    public static function get_size($path=STATIC_MIRROR_BASE, $recursive=FALSE){
         $size = 0;
         $list = scandir($path);
         foreach($list as $i=>$f){
@@ -939,7 +940,7 @@ class static_mirror {
         }
         return $to;
     }
-    public static function array_filter($set=array(), $match=array(), $limit=array()){
+    public static function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){
       $delimiter = array('('=>')','{'=>'}','['=>']','<'=>'>'); foreach(array('#','/','@','+','%') as $x){ $delimiter[$x] = $x; }
       $filter = array();
       foreach($set as $k=>$s){
@@ -978,7 +979,17 @@ class static_mirror {
             }
           }
       }
-      if(is_int($limit)){ if($limit == 0){ return reset($set); } reset($set); for($i=0;$i<=$limit;$i++){ next($set); } return current($set); }
+      if(is_int($limit)){
+        $rdb = array_keys($set);
+        if($limit == 0){
+          $rid = (is_array($rdb) && count($rdb) > 0 ? reset($rdb) : NULL);
+          return reset($set);
+        }
+        reset($set);
+        if(isset($rdb[$limit])){$rid = $rdb[$limit];}
+        for($i=0;$i<=$limit;$i++){ next($set); }
+        return current($set);
+      }
       return $set;
     }
     public static function tag_array_unique($tag="email", $to=array(), $merge=array()){
