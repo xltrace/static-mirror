@@ -70,6 +70,8 @@ class static_mirror {
             case 'status': self::status(); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return TRUE; break;
             default:
+                $smdb = self::file_get_json(self::static_mirror_file(), TRUE, array());
+                if(isset($smdb[$for])){ self::update($smdb[$for]); return TRUE; }
                 if(isset($for) && strlen($for) > 0){
                     if(!self::alias($for, TRUE)){ self::grab($for); }
                     return TRUE;
@@ -258,7 +260,8 @@ class static_mirror {
         if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', self::json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
         return TRUE;
     }
-    public static function update(){
+    public static function update($file='index.html'){
+        if(!preg_match('#^[a-z0-9_\-]+\.html$#', $file)){ $file = 'index.html'; }
         if(isset($this)){
             $path = $this->path;
             $patch = $this->patch;
@@ -273,19 +276,21 @@ class static_mirror {
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
         $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
-        $src = reset($conf);
+        if(isset($conf[$file])){ $src = $conf[$file]; }
+        else{ $src = reset($conf); $file = 'index.html'; }
 
         if(!is_array($conf) || strlen($src) < 1){ echo "No MIRROR configured."; return FALSE; }
 
+        if($file == 'index.html'){
         $list = scandir($path);
         foreach($list as $i=>$f){
             if(!preg_match('#^[\.]{1,2}$#', $f)){ unlink($path.$f); }
-        }
+        }}
 
         $raw = file_get_contents($src);
         $raw = self::apply_patch($raw);
 
-        file_put_contents($path.'index.html', $raw);
+        file_put_contents($path.$file, $raw);
         print self::url_patch($raw);
         return $raw;
     }
