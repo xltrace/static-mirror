@@ -511,6 +511,18 @@ class static_mirror {
       if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; }
   		return (string) $result;
   	}
+    public static function generate_m_hash($emailaddress=NULL){
+      $m = NULL;
+      //*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
+      $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
+      //if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
+        $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
+        $jsonstr = json_encode($data);
+        $m = self::encrypt($jsonstr, $key);
+        //$short = self::put_short_by_m($m);
+      //}
+      return $m;
+    }
     public static function requestaccess($emailaddress=NULL){
       /*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
       $s = self::status_json(FALSE);
