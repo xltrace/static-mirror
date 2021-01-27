@@ -1,5 +1,5 @@
 <?php
-namespace XLtrace;
+namespace XLtrace\Hades;
 if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   ini_set('display_errors', 1);
   ini_set('display_startup_errors', 1);
@@ -20,6 +20,10 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
   if(!defined('HERMES_REMOTE')){ define('HERMES_REMOTE', 'http://fertilizer.wyaerda.nl/hermes/remote.php'); }
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
+}
+function get($for=NULL, &$set=array()){
+  $sm = new static_mirror(STATIC_MIRROR_BASE);
+  return $sm->detect($for, $set);
 }
 class static_mirror {
     var $path;
@@ -372,7 +376,7 @@ class static_mirror {
             $_SESSION['token'] = $_POST['token'];
             return TRUE;
         }
-        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'], NULL, $mail)){ $_SESSION['m'] = $_GET['m']; return TRUE; }
+        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'], NULL, $email)){ $_SESSION['m'] = $_GET['m']; return TRUE; }
         if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
         elseif(isset($_SESSION['m'])){ return self::authenticate_by_hash($_SESSION['m'], NULL, $email); }
         return FALSE;
@@ -422,6 +426,7 @@ class static_mirror {
       /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
       /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
       /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
+      /*fix: needs @session_start() */ self::authenticated();
       if($m === NULL || strlen($m) < 1){ return FALSE; }
       /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
       /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = self::get_m_by_short($m)){ $m = $found; }}
@@ -513,13 +518,14 @@ class static_mirror {
   	}
     public static function generate_m_hash($emailaddress=NULL){
       $m = NULL;
+      /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
       //*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
       $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
       //if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
         $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
         $jsonstr = json_encode($data);
         $m = self::encrypt($jsonstr, $key);
-        //$short = self::put_short_by_m($m);
+        $short = self::put_short_by_m($m);
       //}
       return $m;
     }
@@ -1325,10 +1331,163 @@ class static_mirror {
       return file_put_contents($file, $jsonstr);
     }
 }
+class module /*extends static_mirror*/ {
+  var $for = NULL;
+  var $mode = "text/markdown";
+  var $mapper = FALSE; // __FILE__ .json
+  var $root = FALSE;
+  function __construct($settings=array()){
+    foreach(array('mode','mapper','root','for') as $el){
+      if(isset($settings[$el])){ $this->$el = $settings[$el]; }
+    }
+    if($this->root == FALSE && $this->mapper !== FALSE){ $this->root = dirname($this->mapper); }
+    /*fix*/ if($this->root !== FALSE && substr($this->root, -1) != '/'){ $this->root .= '/'; }
+  }
+  function get($for=NULL, &$set=array()){
+    $str = FALSE;
+    switch(strtolower($for)){
+      case 'toc': $str = $this->toc(); break;
+      default:
+        $db = $this->mapper_set(NULL);
+        if(isset($db[strtolower($for)])){ $str = $this->mapper(strtolower($for)); }
+    }
+    if($this->mode == "text/html" && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+    return $str;
+  }
+  /*public static*/ function detect($for=NULL, &$set=array()){
+    if($this->mapper !== FALSE){
+      $db = $this->mapper_set(NULL);
+      return (in_array(strtolower($for), array('toc')) || isset($db[strtolower($for)]));
+    }
+    else{
+      $r = $this->get($for); return (in_array($r, array(TRUE, FALSE, NULL)) ? $r : TRUE);
+    }
+  }
+  /*public static*/ function toc($as_html=FALSE){
+    $db = $this->mapper_set(NULL);
+    $toc = NULL;
+    foreach($db as $i=>$item){
+      $toc .= '- ['.(isset($item['title']) ? $item['title'] : ucfirst($i)).']('.static_mirror::current_URI($i).')'."\n";
+    }
+    if($as_html === TRUE && function_exists('\Morpheus\markdown_decode')){ $toc = \Morpheus\markdown_decode($toc); }
+    return $toc;
+  }
+  function mm($template=NULL, $set=array(), $config=array()){
+    $extentions = array('m','md','html');
+    foreach($extentions as $ext){
+    $t = $this->root.$template.'.'.$ext;
+    //*debug*/ print '<pre>'; print_r(array('template'=>$template,'set'=>$set,'config'=>$config,'t'=>$t,'t_exists'=>file_exists($t))); print '</pre>';
+    if(file_exists($t)){
+      $raw = file_get_contents($t);
+      $raw = static_mirror::m($raw, $set);
+      //*markdown fix*/ $raw = \Morpheus\Markdown_decode($raw, array_merge($set, $config)); //$morph = new \Morpheus\markdown(); $raw = $morph->decode($raw, array_merge($set, $config)); //print_r($morph);
+      //*debug*/ print_r($raw); exit;
+      return $raw;
+    }}
+    return (file_exists($this->root.'template_is_not_found.html') ? $this->mm('template_is_not_found', $set) : FALSE);
+  }
+  function mapper($for=NULL, $templates=NULL, &$set=array()){
+    /*fix*/ if(!is_array($set)){ $set = array(); }
+    /*fix*/ if($templates === NULL){ $templates = $this->mapper_set($for); } if($templates == array() ){ $templates = 'template_is_not_found'; }
+    if(!is_array($templates)){ $templates = array('null'=>$templates); }
+    if(isset($templates['authenticated']) && $templates['authenticated'] === TRUE && !static_mirror::authenticated()){ //force login!
+      /*debug*/ print 'authenticated = '; print_r(array($templates['authenticated'], static_mirror::authenticated())); print "\n";
+      //return self::mm('signin', array_merge($set, array('template-file'=>'signin')));
+    }
+    if(isset($templates['method'])){
+      $res = $this->mapper_data($for, $set);
+    } else { $res = NULL; }
+    //*debug*/ print_r(array('for'=>$for,'templates'=>$templates,'set'=>$set,'res'=>$res));
+    /*fix*/ if(is_bool($res)){ $res = ($res === TRUE ? 'true' : 'false'); } elseif($res === NULL){ $res = 'null'; }
+    $t = (preg_match('#^[:](redirect|fwd)[\=](.*)$#i', $res) ? $res : (isset($templates[$res]) ? (is_string($templates[$res]) ? $templates[$res] : (is_array($templates[$res]) && isset($templates[$res]['template']) ? $templates[$res]['template'] : FALSE)) : FALSE));
+    if(substr($t,0,1) == ':'){ //proces prefixed ':' references and redirects
+      if(preg_match('#^[:](redirect|fwd)[\=](.*)$#i', $t, $buffer)){
+        header("Location: ".static_mirror::current_URI($buffer[2]));
+        print '<meta http-equiv="Refresh" content="0; url=\''.static_mirror::current_URI($buffer[2]).'\'" />';
+        /*debug*/ print "REDIRECT to ".$buffer[2]." !\n";
+        exit;
+      }
+      else{
+        $res = substr($t,1);
+        $t = (is_string($templates[$res]) ? $templates[$res] : (is_array($templates[$res]) && isset($templates[$res]['template']) ? $templates[$res]['template'] : FALSE));
+      }
+    }
+    $this->mapper_output($for, $res, $set);
+    /*fix*/ $set = array_merge($_GET, $_POST, $set);
+    $set = array_merge($set, array('template-file'=>(isset($t) ? $t : $for)));
+    //*debug*/print_r(array('res'=>$res,'t'=>$t,'templates'=>$templates,'set'=>$set));
+    if(isset($t)){ return $this->mm($t, $set, $templates); }
+    return $this->mm('template_is_not_found', $set);
+  }
+  function extentions(){
+    return array('m','md','html');
+  }
+  function mapper_flags(){
+    return array('authenticated','method','enctype','values','title');
+  }
+  function mapper_set($for=NULL){
+    $set = array(
+      'authenticate' => array('authenticated'=>FALSE,'method'=>'POST','null'=>'signin','true'=>'signin-success','false'=>'signin-failed'),
+      'upload' => array('authenticated'=>TRUE,'method'=>'POST','enctype'=>'application/x-www-form-urlencoded','null'=>'upload','true'=>'upload-success','false'=>'upload-failed')
+    );
+    if(file_exists(preg_replace('#\.php$#', '.json', $this->mapper))){ $json = json_decode(file_get_contents(preg_replace('#\.php$#', '.json', $this->mapper)), TRUE); if(is_array($json)){ $set = $json; }}
+    return ($for === NULL ? $set : (isset($set[strtolower($for)]) ? $set[strtolower($for)] : array()));
+  }
+  function all_templates($all=TRUE, $create=FALSE, $extention='md'){
+    $extentions = $this->extentions();
+    $list = array();
+    $db = $this->mapper_set(NULL);
+    foreach($db as $i=>$item){
+      foreach($item as $j=>$ho){
+        $h = (is_string($ho) ? $ho : (isset($ho['template']) ? $ho['template'] : FALSE));
+        if($h !== FALSE && !in_array($j, $this->mapper_flags())){
+          if(substr($h,0,1) != ':'){
+            $e = FALSE;
+            foreach($extentions as $ext){
+              $t = $this->root.$h.'.'.$ext;
+              if(file_exists($t)){ $e = $t; }
+            }
+            if(($all !== TRUE ? $e === FALSE : TRUE)){
+              $list[$i.':'.$j] = ($e === FALSE ? $this->root.$h.'.'.$extention : $e);
+              if($create !== FALSE && !file_exists($list[$i.':'.$j])){ file_put_contents($list[$i.':'.$j], '<!-- '.$i.':'.$j.' = '.$h.' -->'); }
+            }
+          } else {
+            //what to do with references and :redirect= ?
+          }
+        }
+      }
+    }
+    return $list;
+  }
+  function mapper_output($for=NULL, $res=NULL, &$set=array()){
+    /*fix*/ if(is_bool($res)){ $res = ($res === TRUE ? 'true' : 'false'); } elseif($res === NULL){ $res = 'null'; }
+    switch(strtolower($for.':'.$res)){
+      /*BEGIN mapper_output cases*/
+      //case '': return TRUE; break;
+      /*END mapper_output cases*/
+      default:
+        return FALSE; //do nothing
+    }
+    return FALSE;
+  }
+  function mapper_data($for=NULL, &$set=array()){
+    $bool = NULL;
+    $get = (isset($_GET) ? $_GET : array()); $post = $_POST;
+    /*fix*/ if(isset($get['for']) && $for == $get['for']){ unset($get['for']); }
+    if((isset($post) ? is_array($post) && count($post) == 0 : TRUE) && (is_array($get) && count($get) == 0)){ return NULL; }
+    switch(strtolower($for)){
+      /*BEGIN mapper_data cases*/
+      //case '': return TRUE; break;
+      /*END mapper_data cases*/
+      default:
+    }
+    return NULL;
+  }
+}
 
 if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
   /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
-  \XLtrace\static_mirror::detect($_GET['for']);
+  \XLtrace\Hades\get($_GET['for']);
 }
 ?>
