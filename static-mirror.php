@@ -25,21 +25,440 @@ function get($for=NULL, &$set=array()){
   $sm = new static_mirror(STATIC_MIRROR_BASE);
   return $sm->detect($for, $set);
 }
+function deprecated($item=NULL){ if(isset($_GET['debug']) && in_array($_GET['debug'], array('true','yes',TRUE))){ print ($item === NULL ? 'A method being used' : $item).' is being deprecated.'."\n"; } }
+
+function static_mirror_file(){ return STATIC_MIRROR_BASE.'/static-mirror.json'; }
+function hermes_file(){ return STATIC_MIRROR_BASE.'/hermes.json'; }
+function addressbook_file(){ return STATIC_MIRROR_BASE.'/addressbook.json'; }
+function alias_file(){ return STATIC_MIRROR_BASE.'/alias.json'; }
+function slaves_file(){ return STATIC_MIRROR_BASE.'/slaves.json'; }
+function mailbox_file(){ return STATIC_MIRROR_BASE.'/mailbox.json'; }
+function whitelist_file(){ return STATIC_MIRROR_BASE.'/whitelist.json'; }
+function short_file(){ return STATIC_MIRROR_BASE.'/short.json'; }
+function hermes_default_remote(){ return HERMES_REMOTE; }
+function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
+function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
+
+function authenticated($email=NULL){
+    if(!file_exists(\XLtrace\Hades\hermes_file())){ return FALSE; }
+    $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
+    @session_start();
+    if(isset($_POST['token']) && $_POST['token'] == $json['key']){
+        $_SESSION['token'] = $_POST['token'];
+        return TRUE;
+    }
+    if(isset($_GET['m']) && \XLtrace\Hades\authenticate_by_hash($_GET['m'], NULL, $email)){ $_SESSION['m'] = $_GET['m']; return TRUE; }
+    if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
+    elseif(isset($_SESSION['m'])){ return \XLtrace\Hades\authenticate_by_hash($_SESSION['m'], NULL, $email); }
+    return FALSE;
+}
+function authenticate_by_hash($m=NULL, $key=NULL, $email=NULL){
+  /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
+  /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
+  /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
+  /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
+  /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = \XLtrace\Hades\get_m_by_short($m)){ $m = $found; }}
+  /*fix*/ if($key === NULL){ $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', NULL); }
+  $jsonstr = \XLtrace\Hades\decrypt($m, $key);
+  $data = json_decode($jsonstr, TRUE);
+  $lifespan = STATIC_MIRROR_LIFESPAN;
+  /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
+  $ebool = TRUE;
+  if($email !== NULL){ $ebool = (isset($data['e']) && $data['e'] == $email); }
+  $status = ($ebool && is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
+  //*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
+  return $status;
+}
+function generate_m_hash($emailaddress=NULL){
+  $m = NULL;
+  /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
+  //*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
+  $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', FALSE);
+  //if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
+    $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
+    $jsonstr = json_encode($data);
+    $m = \XLtrace\Hades\encrypt($jsonstr, $key);
+    $short = \XLtrace\Hades\put_short_by_m($m);
+  //}
+  return $m;
+}
+function get_m_by_short($short){
+  $set = \XLtrace\Hades\file_get_json(\XLtrace\Hades\short_file(), TRUE, array());
+  if(is_array($set)){foreach($set as $k=>$s){
+    /*clean up old listings*/ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); }
+    if($s['short'] == $short){ return $s['m']; }
+  }}
+  return FALSE;
+}
+function put_short_by_m($m){
+  $short = substr(\XLtrace\Hades\large_base_convert(md5($m), 16, STATIC_MIRROR_SHORT_BASE), 0, STATIC_MIRROR_SHORT_LENGTH);
+  $set = \XLtrace\Hades\file_get_json(\XLtrace\Hades\short_file(), TRUE, array());
+  /*clean up old listings*/ foreach($set as $k=>$s){ if(isset($s['t']) && $s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
+  $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
+  /*fix*/ $ns = array(); foreach($set as $k=>$s){ $ns[] = $s; } $set = $ns;
+  \XLtrace\Hades\file_put_json(\XLtrace\Hades\short_file(), $set);
+  return $short;
+}
+function get_user_emailaddress(){ return \XLtrace\Hades\get_element_from_2ndfa('e'); }
+function get_element_from_2ndfa($el='e', $m=NULL, $key=NULL){
+  /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
+  /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
+  /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
+  /*fix: needs @session_start() */ \XLtrace\Hades\authenticated();
+  if($m === NULL || strlen($m) < 1){ return FALSE; }
+  /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
+  /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = \XLtrace\Hades\get_m_by_short($m)){ $m = $found; }}
+  /*fix*/ if($key === NULL){ $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', NULL); }
+  $jsonstr = \XLtrace\Hades\decrypt($m, $key);
+  $data = json_decode($jsonstr, TRUE);
+  switch(strtolower($el)){
+    case 'i': case 'ip': return $data['i']; break;
+    case 'iso8901': return date('c', $data['t']); break;
+    case 't': case 'timestamp': return $data['t']; break;
+    case 'e': case 'email': case 'emailaddress': return $data['e']; break;
+    default:
+      //future feature: grab additional info from addressbook (filter by emailaddress from 2ndFA)
+  }
+  return FALSE;
+}
+function is_whitelisted($email=NULL){
+  if(!file_exists(\XLtrace\Hades\whitelist_file())){ return FALSE; }
+  $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\whitelist_file(), TRUE, array());
+  return (in_array($email, $json) ? TRUE : FALSE);
+}
+function signin(){
+  //$s = \XLtrace\Hades\status_json(FALSE);
+  //if($s['2ndFA'] === TRUE){ return \XLtrace\Hades\requestaccess(); }
+  //else{
+    $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
+    return $html; //self::encapsule($html, TRUE);
+  //}
+  return FALSE;
+}
+function signoff(){
+  \XLtrace\Hades\authenticated();
+  unset($_SESSION['token']);
+  unset($_SESSION['m']);
+  $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
+  return $html; //self::encapsule($html, TRUE);
+  return FALSE;
+}
+function file_get_json($file, $as_array=TRUE, $def=FALSE){
+  /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
+  if(is_array($file)){
+    $set = FALSE;
+    foreach($file as $i=>$f){
+      $buffer = \XLtrace\Hades\file_get_json($f, $as_array, $def);
+      if($buffer !== $def && ($as_array === TRUE ? is_array($buffer) : TRUE)){
+        $set = array_merge(($as_array !== TRUE ? array($buffer) : $buffer), (!is_array($set) ? array() : $set));
+      }
+    }
+    return $set;
+  }
+  $puf = parse_url($file);
+  if((is_array($puf) && !isset($puf['schema']) && !isset($puf['host']) ? file_exists($file) : $puf !== FALSE )){
+    $raw = file_get_contents($file);
+    $json = json_decode($raw, (is_bool($as_array) ? $as_array : TRUE));
+    if(!is_bool($as_array)){
+      if(isset($json[$as_array])){ return $json[$as_array]; }
+      else{ return $def; }
+    }
+    else{
+      return $json;
+    }
+  }
+  return $def;
+}
+function file_put_json($file, $set=array()){
+  if(class_exists('JSONplus')){
+    $jsonstr = \JSONplus::encode($set);
+  }
+  else{
+    $jsonstr = json_encode($set);
+  }
+  return file_put_contents($file, $jsonstr);
+}
+function build_url($ar=array()){
+    // $ar is assumed to be a valid result of parse_url()
+    $url = NULL;
+    $url .= (isset($ar['scheme']) ? $ar['scheme'].'://' : NULL);
+    if(isset($ar['user'])){ $url .= $ar['user'].(isset($ar['pass']) ? ':'.$ar['pass'] : NULL).'@'; }
+    $url .= $ar['host'].(isset($ar['port']) ? ':'.$ar['port'] : NULL);
+    $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (isset($ar['path']) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : '/') : NULL);
+    $url .= (isset($ar['path']) ? $ar['path'] : NULL);
+    $url .= (isset($ar['query']) ? '?'.(is_array($ar['query']) ? http_build_query($ar['query']) : $ar['query']) : NULL);
+    $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
+    return $url;
+}
+function url_is_valid_status_json($url){
+    if(parse_url($url) == FALSE || strlen($url) < 5){ return FALSE; }
+    /*fix*/ if(substr($url, -1) == '/'){ $url = $url.'status.json'; }
+    $raw = file_get_contents($url);
+    if(strlen($raw) < 4){ return FALSE; }
+    $json = json_decode($raw, TRUE);
+    if(isset($json['system-fingerprint']) && strlen($json['system-fingerprint']) == 32){ return TRUE; }
+    return FALSE;
+}
+function current_URI($el=NULL, $pl=NULL, $set=array()){
+  $uri = array(
+    'scheme'=>((
+      (isset($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME']=='https') ||
+      (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] == '443') ||
+      (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') ||
+      (isset($_SERVER['SCRIPT_URI']) && substr($_SERVER['SCRIPT_URI'],0,5)=='https')
+    ) ? 'https' : 'http'),
+    'host'=>(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost'));
+  if($el !== NULL){
+    if(is_array($el)){ $uri['query'] = $el; if($pl !== NULL){ $uri['path'] = $pl; } }
+    else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
+  }
+  /*fix*/ if(is_array($set)){ $uri = array_merge($uri, $set); }
+  /*fix*/ if(isset($uri['query']['for']) && (!isset($uri['path']) || strlen($uri['path']) < 1)){ $uri['path'] = $uri['query']['for']; unset($uri['query']['for']); }
+  return \XLtrace\Hades\build_url($uri);
+}
+function url_patch($str, $find=NULL, $host=FALSE){
+  if(is_bool($find)){ if($find === FALSE){ return $str; } else { $find = NULL; }}
+  /*fix*/ $alt = $find;
+  if($host === FALSE){ $host = $_SERVER['HTTP_HOST']; }
+  if($find === NULL){
+    $find = array('https://localhost/', 'http://localhost/');
+    /*future upgrade: grab from patch/.preg*/
+  }
+  /*fix*/ if(is_string($find)){ $find = array($find); }
+  if(is_array($find)){foreach($find as $i=>$el){
+    $alt[$i] = (parse_url($el) !== FALSE ? \XLtrace\Hades\current_URI(NULL, NULL, array_merge(parse_url($el), array('host'=>$host))) : $el);
+  }}
+  /* \/ fix*/
+  if(is_array($find)){$ef=array();foreach($find as $i=>$el){ if(preg_match('#[/]#', $el)){ $ef[$i] = str_replace('/','\\/', $el); } $find = array_merge($find, $ef); }}
+  if(is_array($alt)){$af=array();foreach($alt as $i=>$el){ if(preg_match('#[/]#', $el)){ $af[$i] = str_replace('/','\\/', $el); } $alt = array_merge($alt, $af); }}
+
+  $str = str_replace($find, $alt, $str);
+  return $str;
+}
+function is_emailaddress($email=NULL){ return filter_var($email, FILTER_VALIDATE_EMAIL); }
+function array_urlencode($ar=array(), $sub=FALSE, $implode=TRUE){
+  $set = array();
+  foreach($ar as $k=>$value){
+    $key = (is_bool($sub) ? $k : $sub.'['.$k.']');
+    if(is_array($value)){
+      $set = array_merge($set, \XLtrace\Hades\array_urlencode($value, $key, FALSE));
+    }
+    else{
+      $set[$key] = $key.'='.urlencode($value);
+    }
+  }
+  return ($implode === TRUE ? implode('&', $set) : $set);
+}
+function tag_array_unique($tag="email", $to=array(), $merge=array()){
+    $set = array_merge($to, $merge);
+    $list = array();
+    foreach($set as $i=>$a){
+      if(isset($a[$tag])){
+        if(in_array($a[$tag], $list)){
+          $j = array_search($a[$tag], $list);
+          $set[$j] = array_merge($set[$j], $set[$i]);
+          unset($set[$i]);
+        }
+        $list[$i] = $a[$tag];
+      }
+    }
+    return $set;
+}
+function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){
+  $delimiter = array('('=>')','{'=>'}','['=>']','<'=>'>'); foreach(array('#','/','@','+','%') as $x){ $delimiter[$x] = $x; }
+  $filter = array();
+  foreach($set as $k=>$s){
+      foreach($match as $x=>$y){
+        if($y == NULL || preg_match('#^(true|false|null)$#i', $y)){
+          switch(strtolower($y)){
+            case 'true':
+              if(!isset($s[$x])){ unset($set[$k]); }
+              elseif(is_bool($s[$x]) && $s[$x] !== TRUE){ unset($set[$k]); }
+              break;
+            case 'false':
+              if(isset($s[$x]) && $s[$x] !== FALSE){ unset($set[$k]); }
+              break;
+            default: //case NULL
+              if(isset($s[$x]) && !($s[$x] == NULL)){ unset($set[$k]); }
+          }
+        }
+        elseif(isset($s[$x])){
+          if(!in_array($x, $filter)){$filter[] = $x;}
+          switch(substr($y, 0, 1)){
+            case '#': case '/': case '@': case '+': case '$': case '{': case '(': case '[': case '<':
+              if(preg_match('@\\'.$delimiter[substr($y, 0, 1)].'(i)?$@', $y)){
+                if(!preg_match($y, $s[$x])){
+                  unset($set[$k]);
+                }
+                break; //if not matched, uses default test
+              }
+            default:
+              if($s[$x] != $y){
+                unset($set[$k]);
+              }
+          }
+        }
+        else{ //remove when $x is not set in $s
+          if(in_array($x, $filter)){ unset($set[$k]); }
+        }
+      }
+  }
+  if(is_int($limit)){
+    $rdb = array_keys($set);
+    if($limit == 0){
+      $rid = (is_array($rdb) && count($rdb) > 0 ? reset($rdb) : NULL);
+      return reset($set);
+    }
+    reset($set);
+    if(isset($rdb[$limit])){$rid = $rdb[$limit];}
+    for($i=0;$i<=$limit;$i++){ next($set); }
+    return current($set);
+  }
+  return $set;
+}
+function json_encode($value, $options=0, $depth=512){
+  return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
+}
+function library(){
+  return "0123456789" #10
+  ."abcdefghij" #20
+  ."klmnopqrst" #30
+  ."uvwxyzABCD" #40
+  ."EFGHIJKLMN" #50
+  ."OPQRSTUVWX" #60
+  ."YZ-_+!@$%~" #70 (trustworthy up to base62 (10+26+26), backwards-compatible to base70 (pre Xnode v2.0 RC047) )
+  ."\"#&'()*,./" #80
+  .":;<=>?[\\]^" #90
+  ."`{|}" #95
+  ."¡¢" #97
+  ."£¤¥§©«¬®°±" #107
+  ."µ¶»¼½¾¿ÆÐ×" #117
+  ."Þßæçð÷ø \t\n"; #127
+}
+function large_base_convert($numstring, $frombase, $tobase, $bitlength=0, $minlength=0) {
+  //*error*/ if($frombase <= 1 || $tobase <= 1){ return $numstring; }
+  /*fix*/ if(is_string($frombase)){ $frombase = (int) \XLtrace\Hades\large_base_convert($frombase, 70, 10); }
+  /*fix*/ if(is_string($tobase)){ $tobase = (int) \XLtrace\Hades\large_base_convert($tobase, 70, 10); }
+  //*debug*/ if($frombase == 1 || $tobase == 1) print '<!-- LBC: '.print_r(array($numstring, $frombase, $tobase, $bitlength, $minlength), TRUE).' -->';
+  /*standard behaviour*/ if(is_int($numstring) && $numstring < 256 && $frombase <= 36 && $tobase <= 36 && !($frombase == $tobase)){ $result = base_convert($numstring, $frombase, $tobase); if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; } return $result; }
+  if($bitlength===0){ $bitlength = strlen(\XLtrace\Hades\large_base_convert(\XLtrace\Hades\large_base_convert($frombase-1, 10, $frombase, -1), $frombase, $tobase, -1)); }
+  //$numstring .= ''; /*forced string fix*/
+  $numstring = (string) $numstring;
+  $chars = \XLtrace\Hades\library();
+  $tostring = substr($chars, 0, $tobase);
+  $original = $numstring;
+  /*CaseClass-fix*/ if($frombase<=36){$numstring = strtolower($numstring);}
+
+  $length = strlen($numstring);
+  $result = '';
+  for ($i = 0; $i < $length; $i++) {
+    $number[$i] = strpos($chars, $numstring{$i});
+  }
+  do {
+    $divide = 0;
+    $newlen = 0;
+    for ($i = 0; $i < $length; $i++) {
+      $divide = $divide * $frombase + $number[$i];
+      if ($divide >= $tobase) {
+        $number[$newlen++] = (int)($divide / $tobase);
+        $divide = $divide % $tobase;
+      } elseif ($newlen > 0) {
+        $number[$newlen++] = 0;
+      }
+    }
+    $length = $newlen;
+    $result = $tostring{$divide} . $result;
+  }
+  while ($newlen != 0);
+  /*CaseClass-fix*/ if($frombase<=36 && $numstring!=$original){$result = strtoupper($result);}
+  /*fulllength compatibility-fix*/ if($bitlength > 0 && $bitlength >= strlen((string) $result) ){ $result = str_repeat($chars{1}, $bitlength-strlen((string) $result)).((string) $result); }
+  if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; }
+  return (string) $result;
+}
+function encrypt($str, $key=FALSE){
+  //*move to object*/ if(isset($this) && is_bool($key)){ $key = $this->secret; } elseif($key == NULL || is_bool($key)){ return $str; }
+  $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+  $iv = openssl_random_pseudo_bytes($ivlen);
+  $ciphertext_raw = openssl_encrypt($str, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+  $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+  $ciphertext = base64_encode( $iv.$hmac.$ciphertext_raw );
+  return $ciphertext;
+}
+function decrypt($ciphertext, $key=FALSE){
+  //*move to object*/ if(isset($this) && is_bool($key)){ $key = $this->secret; }
+  if(is_array($key)){
+    $awnser = FALSE;
+    foreach($key as $i=>$k){
+      //$b = (isset($this) ? $this->decrypt($ciphertext, $k) : \XLtrace\Hades\decrypt($ciphertext, $k) );
+      $b = \XLtrace\Hades\decrypt($ciphertext, $k);
+      if($b !== FALSE){
+        $awnser = $b;
+        //if(isset($this)){
+        //  $this->last = $k;
+        //  $this->hit = array_unique(array_merge($this->hit, array($k)));
+        //}
+        if(defined('JSONplus_KEY_LAST') && defined('JSONplus_KEY_HIT')) {
+          global ${JSONplus_KEY_LAST}, ${JSONplus_KEY_HIT};
+          ${JSONplus_KEY_LAST} = $k;
+          ${JSONplus_KEY_HIT} = array_unique(array_merge((is_array(${JSONplus_KEY_HIT}) ? ${JSONplus_KEY_HIT} : array()), array($k)));
+        }
+        return $awnser;
+      }
+    }
+    return $awnser;
+  }
+  //*debug*/ print_r(array('ciphertext'=>$ciphertext, 'key'=>$key));
+  //$cipher, $key
+  $c = base64_decode($ciphertext);
+  $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
+  $iv = substr($c, 0, $ivlen);
+  if(strlen($iv) < $ivlen){ return FALSE; }
+  $hmac = substr($c, $ivlen, $sha2len=32);
+  $ciphertext_raw = substr($c, $ivlen+$sha2len);
+  $original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
+  $calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
+  if(FALSE && $ciphertext_raw){ print '<pre>'.str_replace(array('<','>'), array('&lt;','&gt;'), print_r(array(
+    'ciphertext'=>$ciphertext,
+    'c'=>$c,
+    'key'=>$key,
+    'cipher'=>$cipher,
+    'ivlen'=>$ivlen,
+    'iv'=>$iv,
+    'hmac'=>$hmac,
+    'sha2len'=>$sha2len,
+    'ciphertext_raw'=>$ciphertext_raw,
+    'options'=>$options,
+    'original_plaintext'=>$original_plaintext,
+    'calcmac'=>$calcmac
+  ), TRUE)).'</pre>'; }
+  if (hash_equals($hmac, $calcmac)){//PHP 5.6+ timing attack safe comparison
+    return $original_plaintext."\n";
+  }
+  return FALSE;
+}
+
+/**********************************************************************/
+/**********************************************************************/
+/**********************************************************************/
+/**********************************************************************/
+/**********************************************************************/
+/**********************************************************************/
+
 class static_mirror {
     var $path;
     var $patch;
 
-    public static function static_mirror_file(){ return STATIC_MIRROR_BASE.'/static-mirror.json'; }
-    public static function hermes_file(){ return STATIC_MIRROR_BASE.'/hermes.json'; }
-    public static function addressbook_file(){ return STATIC_MIRROR_BASE.'/addressbook.json'; }
-    public static function alias_file(){ return STATIC_MIRROR_BASE.'/alias.json'; }
-    public static function slaves_file(){ return STATIC_MIRROR_BASE.'/slaves.json'; }
-    public static function mailbox_file(){ return STATIC_MIRROR_BASE.'/mailbox.json'; }
-    public static function whitelist_file(){ return STATIC_MIRROR_BASE.'/whitelist.json'; }
-    public static function short_file(){ return STATIC_MIRROR_BASE.'/short.json'; }
-    public static function hermes_default_remote(){ return HERMES_REMOTE; }
-    public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
-    public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
+    /*deprecated*/ public static function static_mirror_file(){ return \XLtrace\Hades\static_mirror_file(); }
+    /*deprecated*/ public static function hermes_file(){ return \XLtrace\Hades\hermes_file(); }
+    /*deprecated*/ public static function addressbook_file(){ return \XLtrace\Hades\addressbook_file(); }
+    /*deprecated*/ public static function alias_file(){ return \XLtrace\Hades\alias_file(); }
+    /*deprecated*/ public static function slaves_file(){ return \XLtrace\Hades\slaves_file(); }
+    /*deprecated*/ public static function mailbox_file(){ return \XLtrace\Hades\mailbox_file(); }
+    /*deprecated*/ public static function whitelist_file(){ return \XLtrace\Hades\whitelist_file(); }
+    /*deprecated*/ public static function short_file(){ return \XLtrace\Hades\short_file(); }
+    /*deprecated*/ public static function hermes_default_remote(){ return HERMES_REMOTE; }
+    /*deprecated*/ public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
+    /*deprecated*/ public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
 
     function __construct($path, $patch=FALSE){
         $this->path = $path;
@@ -230,25 +649,7 @@ class static_mirror {
         }
         return TRUE;
     }
-    public static function url_patch($str, $find=NULL, $host=FALSE){
-      if(is_bool($find)){ if($find === FALSE){ return $str; } else { $find = NULL; }}
-      /*fix*/ $alt = $find;
-      if($host === FALSE){ $host = $_SERVER['HTTP_HOST']; }
-      if($find === NULL){
-        $find = array('https://localhost/', 'http://localhost/');
-        /*future upgrade: grab from patch/.preg*/
-      }
-      /*fix*/ if(is_string($find)){ $find = array($find); }
-      if(is_array($find)){foreach($find as $i=>$el){
-        $alt[$i] = (parse_url($el) !== FALSE ? self::current_URI(NULL, NULL, array_merge(parse_url($el), array('host'=>$host))) : $el);
-      }}
-      /* \/ fix*/
-      if(is_array($find)){$ef=array();foreach($find as $i=>$el){ if(preg_match('#[/]#', $el)){ $ef[$i] = str_replace('/','\\/', $el); } $find = array_merge($find, $ef); }}
-      if(is_array($alt)){$af=array();foreach($alt as $i=>$el){ if(preg_match('#[/]#', $el)){ $af[$i] = str_replace('/','\\/', $el); } $alt = array_merge($alt, $af); }}
-
-      $str = str_replace($find, $alt, $str);
-      return $str;
-    }
+    /*deprecated*/ public static function url_patch($str, $find=NULL, $host=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\url_patch($str, $find, $host); }
     public static function initial(){
         if(isset($this)){
             $path = $this->path;
@@ -368,20 +769,8 @@ class static_mirror {
         if(isset($_GET['all'])){ self::run_slaves('backup'); }
         return FALSE;
     }
-    public static function authenticated($email=NULL){
-        if(!file_exists(self::hermes_file())){ return FALSE; }
-        $json = self::file_get_json(self::hermes_file(), TRUE, array());
-        @session_start();
-        if(isset($_POST['token']) && $_POST['token'] == $json['key']){
-            $_SESSION['token'] = $_POST['token'];
-            return TRUE;
-        }
-        if(isset($_GET['m']) && self::authenticate_by_hash($_GET['m'], NULL, $email)){ $_SESSION['m'] = $_GET['m']; return TRUE; }
-        if(isset($_SESSION['token']) && $_SESSION['token'] == $json['key']){ return TRUE; }
-        elseif(isset($_SESSION['m'])){ return self::authenticate_by_hash($_SESSION['m'], NULL, $email); }
-        return FALSE;
-    }
-    public static function signin(){
+    /*deprecated*/ public static function authenticated($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\authenticated($email); }
+    /*deprecated*/ public static function signin(){ deprecated(__METHOD__);
         $s = self::status_json(FALSE);
         if($s['2ndFA'] === TRUE){ return self::requestaccess(); }
         else{
@@ -390,145 +779,17 @@ class static_mirror {
           return FALSE;
         }
     }
-    public static function signoff(){
-        self::authenticated();
-        unset($_SESSION['token']);
-        unset($_SESSION['m']);
-        $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
-        self::encapsule($html, TRUE);
-        return FALSE;
-    }
+    /*deprecated*/ public static function signoff(){ deprecated(__METHOD__); return \XLtrace\Hades\signoff(); }
     //public static function process_requestaccess(){}
-    public static function is_whitelisted($email=NULL){
-      if(!file_exists(self::whitelist_file())){ return FALSE; }
-      $json = self::file_get_json(self::whitelist_file(), TRUE, array());
-      return (in_array($email, $json) ? TRUE : FALSE);
-    }
-    public static function authenticate_by_hash($m=NULL, $key=NULL, $email=NULL){
-      /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
-      /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
-      /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
-      /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
-      /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = self::get_m_by_short($m)){ $m = $found; }}
-      /*fix*/ if($key === NULL){ $key = self::file_get_json(self::hermes_file(), 'key', NULL); }
-      $jsonstr = self::decrypt($m, $key);
-      $data = json_decode($jsonstr, TRUE);
-      $lifespan = STATIC_MIRROR_LIFESPAN;
-      /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
-      $ebool = TRUE;
-      if($email !== NULL){ $ebool = (isset($data['e']) && $data['e'] == $email); }
-      $status = ($ebool && is_array($data) && isset($data['e']) && isset($data['t']) && ($data['t']<=date('U') && $data['t']>=(date('U')-$lifespan)) && isset($data['i']) && $data['i'] == $_SERVER['REMOTE_ADDR'] ? TRUE : FALSE);
-      //*debug*/ print '<pre>'; print_r(array('m'=>$m, 'str'=>$jsonstr, 'data'=>$data, 'status'=>$status)); print '</pre>';
-      return $status;
-    }
-    public static function get_user_emailaddress(){ return self::get_element_from_2ndfa('e'); }
-    public static function get_element_from_2ndfa($el='e', $m=NULL, $key=NULL){
-      /*fix*/ if($m === NULL && isset($_SESSION['m'])){ $m = $_SESSION['m']; }
-      /*fix*/ if($m === NULL && isset($_POST['m'])){ $m = $_POST['m']; }
-      /*fix*/ if($m === NULL && isset($_GET['m'])){ $m = $_GET['m']; }
-      /*fix: needs @session_start() */ self::authenticated();
-      if($m === NULL || strlen($m) < 1){ return FALSE; }
-      /*fix*/ if(isset($m) && preg_match('#\s#', $m)){ $m = str_replace(' ','+',$m); }
-      /*short*/ if(strlen($m) == STATIC_MIRROR_SHORT_LENGTH){if($found = self::get_m_by_short($m)){ $m = $found; }}
-      /*fix*/ if($key === NULL){ $key = self::file_get_json(self::hermes_file(), 'key', NULL); }
-      $jsonstr = self::decrypt($m, $key);
-      $data = json_decode($jsonstr, TRUE);
-      switch(strtolower($el)){
-        case 'i': case 'ip': return $data['i']; break;
-        case 'iso8901': return date('c', $data['t']); break;
-        case 't': case 'timestamp': return $data['t']; break;
-        case 'e': case 'email': case 'emailaddress': return $data['e']; break;
-        default:
-          //future feature: grab additional info from addressbook (filter by emailaddress from 2ndFA)
-      }
-      return FALSE;
-    }
-    public static function get_m_by_short($short){
-      $set = self::file_get_json(self::short_file(), TRUE, array());
-      if(is_array($set)){foreach($set as $k=>$s){
-        /*clean up old listings*/ if($s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); }
-        if($s['short'] == $short){ return $s['m']; }
-      }}
-      return FALSE;
-    }
-    public static function put_short_by_m($m){
-      $short = substr(self::large_base_convert(md5($m), 16, STATIC_MIRROR_SHORT_BASE), 0, STATIC_MIRROR_SHORT_LENGTH);
-      $set = self::file_get_json(self::short_file(), TRUE, array());
-      /*clean up old listings*/ foreach($set as $k=>$s){ if(isset($s['t']) && $s['t'] < (time() - STATIC_MIRROR_LIFESPAN )){ unset($set[$k]); } }
-      $set[] = array('t'=>time(),'short'=>$short,'m'=>$m);
-      /*fix*/ $ns = array(); foreach($set as $k=>$s){ $ns[] = $s; } $set = $ns;
-      self::file_put_json(self::short_file(), $set);
-      return $short;
-    }
-    static public function library(){
-        return "0123456789" #10
-  			."abcdefghij" #20
-  			."klmnopqrst" #30
-  			."uvwxyzABCD" #40
-  			."EFGHIJKLMN" #50
-  			."OPQRSTUVWX" #60
-  			."YZ-_+!@$%~" #70 (trustworthy up to base62 (10+26+26), backwards-compatible to base70 (pre Xnode v2.0 RC047) )
-  			."\"#&'()*,./" #80
-  			.":;<=>?[\\]^" #90
-  			."`{|}" #95
-  			."¡¢" #97
-  			."£¤¥§©«¬®°±" #107
-  			."µ¶»¼½¾¿ÆÐ×" #117
-  			."Þßæçð÷ø \t\n"; #127
-    }
-    static public function large_base_convert ($numstring, $frombase, $tobase, $bitlength=0, $minlength=0) {
-      //*error*/ if($frombase <= 1 || $tobase <= 1){ return $numstring; }
-      /*fix*/ if(is_string($frombase)){ $frombase = (int) self::large_base_convert($frombase, 70, 10); }
-      /*fix*/ if(is_string($tobase)){ $tobase = (int) self::large_base_convert($tobase, 70, 10); }
-      //*debug*/ if($frombase == 1 || $tobase == 1) print '<!-- LBC: '.print_r(array($numstring, $frombase, $tobase, $bitlength, $minlength), TRUE).' -->';
-      /*standard behaviour*/ if(is_int($numstring) && $numstring < 256 && $frombase <= 36 && $tobase <= 36 && !($frombase == $tobase)){ $result = base_convert($numstring, $frombase, $tobase); if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; } return $result; }
-  		if($bitlength===0){ $bitlength = strlen(self::large_base_convert(self::large_base_convert($frombase-1, 10, $frombase, -1), $frombase, $tobase, -1)); }
-  		//$numstring .= ''; /*forced string fix*/
-      $numstring = (string) $numstring;
-      $chars = self::library();
-  		$tostring = substr($chars, 0, $tobase);
-  		$original = $numstring;
-  		/*CaseClass-fix*/ if($frombase<=36){$numstring = strtolower($numstring);}
-
-  		$length = strlen($numstring);
-  		$result = '';
-  		for ($i = 0; $i < $length; $i++) {
-  			$number[$i] = strpos($chars, $numstring{$i});
-  		}
-  		do {
-  			$divide = 0;
-  			$newlen = 0;
-  			for ($i = 0; $i < $length; $i++) {
-  				$divide = $divide * $frombase + $number[$i];
-  				if ($divide >= $tobase) {
-  					$number[$newlen++] = (int)($divide / $tobase);
-  					$divide = $divide % $tobase;
-  				} elseif ($newlen > 0) {
-  					$number[$newlen++] = 0;
-  				}
-  			}
-  			$length = $newlen;
-  			$result = $tostring{$divide} . $result;
-  		}
-  		while ($newlen != 0);
-  		/*CaseClass-fix*/ if($frombase<=36 && $numstring!=$original){$result = strtoupper($result);}
-  		/*fulllength compatibility-fix*/ if($bitlength > 0 && $bitlength >= strlen((string) $result) ){ $result = str_repeat($chars{1}, $bitlength-strlen((string) $result)).((string) $result); }
-      if($minlength !== 0 && strlen($result) < $minlength){ $result = str_repeat('0', $minlength-strlen($result)).$result; }
-  		return (string) $result;
-  	}
-    public static function generate_m_hash($emailaddress=NULL){
-      $m = NULL;
-      /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
-      //*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
-      $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
-      //if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
-        $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
-        $jsonstr = json_encode($data);
-        $m = self::encrypt($jsonstr, $key);
-        $short = self::put_short_by_m($m);
-      //}
-      return $m;
-    }
+    /*deprecated*/ public static function is_whitelisted($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\is_whitelisted($email); }
+    /*deprecated*/ public static function authenticate_by_hash($m=NULL, $key=NULL, $email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\authenticate_by_hash($m, $key, $email); }
+    /*deprecated*/ public static function get_user_emailaddress(){ deprecated(__METHOD__); return self::get_element_from_2ndfa('e'); }
+    /*deprecated*/ public static function get_element_from_2ndfa($el='e', $m=NULL, $key=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\get_element_from_2ndfa($el, $m, $key); }
+    /*deprecated*/ public static function get_m_by_short($short){ deprecated(__METHOD__); return \XLtrace\Hades\get_m_by_short($short); }
+    /*deprecated*/ public static function put_short_by_m($m){ deprecated(__METHOD__); return \XLtrace\Hades\put_short_by_m($m); }
+    /*deprecated*/ public static function library(){ deprecated(__METHOD__); return \XLtrace\Hades\library(); }
+    /*deprecated*/ public static function large_base_convert($numstring, $frombase, $tobase, $bitlength=0, $minlength=0){ deprecated(__METHOD__); return \XLtrace\Hades\large_base_convert($numstring, $frombase, $tobase, $bitlength, $minlength); }
+    /*deprecated*/ public static function generate_m_hash($emailaddress=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\generate_m_hash($emailaddress); }
     public static function requestaccess($emailaddress=NULL){
       /*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
       $s = self::status_json(FALSE);
@@ -717,23 +978,7 @@ class static_mirror {
         }
         else { return $json; }
     }
-    public static function current_URI($el=NULL, $pl=NULL, $set=array()){
-      $uri = array(
-        'scheme'=>((
-          (isset($_SERVER['REQUEST_SCHEME']) && $_SERVER['REQUEST_SCHEME']=='https') ||
-          (isset($_SERVER['SERVER_PORT']) && (string) $_SERVER['SERVER_PORT'] == '443') ||
-          (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS']=='on') ||
-          (isset($_SERVER['SCRIPT_URI']) && substr($_SERVER['SCRIPT_URI'],0,5)=='https')
-        ) ? 'https' : 'http'),
-        'host'=>(isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost'));
-      if($el !== NULL){
-        if(is_array($el)){ $uri['query'] = $el; if($pl !== NULL){ $uri['path'] = $pl; } }
-        else{ $uri['path'] = $el; if(is_array($pl)){ $uri['query'] = $pl; } }
-      }
-      /*fix*/ if(is_array($set)){ $uri = array_merge($uri, $set); }
-      /*fix*/ if(isset($uri['query']['for']) && (!isset($uri['path']) || strlen($uri['path']) < 1)){ $uri['path'] = $uri['query']['for']; unset($uri['query']['for']); }
-      return self::build_url($uri);
-    }
+    /*deprecated*/ public static function current_URI($el=NULL, $pl=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\current_URI($el, $pl, $set); }
     public static function configure(){
         if(!file_exists(self::hermes_file())){
             if(isset($_POST['token'])){
@@ -860,15 +1105,7 @@ class static_mirror {
         self::encapsule(self::hermes('hit', TRUE), TRUE);
         return FALSE;
     }
-    public static function url_is_valid_status_json($url){
-        if(parse_url($url) == FALSE || strlen($url) < 5){ return FALSE; }
-        /*fix*/ if(substr($url, -1) == '/'){ $url = $url.'status.json'; }
-        $raw = file_get_contents($url);
-        if(strlen($raw) < 4){ return FALSE; }
-        $json = json_decode($raw, TRUE);
-        if(isset($json['system-fingerprint']) && strlen($json['system-fingerprint']) == 32){ return TRUE; }
-        return FALSE;
-    }
+    /*deprecated*/ public static function url_is_valid_status_json($url){ deprecated(__METHOD__); return \XLtrace\Hades\url_is_valid_status_json($url); }
     public static function encapsule($content=NULL, $print=TRUE, $template='empty.html'){
         //encapsule when an cache/empty.html skin is available
 
@@ -902,18 +1139,7 @@ class static_mirror {
         }
         return (count($json) == 0 ? $bool : $json);
     }
-    public static function build_url($ar=array()){
-        // $ar is assumed to be a valid result of parse_url()
-        $url = NULL;
-        $url .= (isset($ar['scheme']) ? $ar['scheme'].'://' : NULL);
-        if(isset($ar['user'])){ $url .= $ar['user'].(isset($ar['pass']) ? ':'.$ar['pass'] : NULL).'@'; }
-        $url .= $ar['host'].(isset($ar['port']) ? ':'.$ar['port'] : NULL);
-        $url .= ((isset($ar['query']) || isset($ar['fragment']) || isset($ar['path'])) ? (isset($ar['path']) ? (substr($ar['path'], 0, 1) != '/' ? '/' : NULL) : '/') : NULL);
-        $url .= (isset($ar['path']) ? $ar['path'] : NULL);
-        $url .= (isset($ar['query']) ? '?'.(is_array($ar['query']) ? http_build_query($ar['query']) : $ar['query']) : NULL);
-        $url .= (isset($ar['fragment']) ? '#'.$ar['fragment'] : NULL);
-        return $url;
-    }
+    /*deprecated*/ public static function build_url($ar=array()){ deprecated(__METHOD__); return \XLtrace\Hades\build_url($ar); }
     public static function m($str=NULL, $set=array()){
       if(class_exists('\JSONplus\Morpeus')){ return \JSONplus\Morpheus::parse($str, $set); }
       preg_match_all('#[\{]([^\}\?\|]+)([^\}]+)?[\}]#', $str, $buffer);
@@ -967,73 +1193,8 @@ class static_mirror {
         }
         return $to;
     }
-    public static function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){
-      $delimiter = array('('=>')','{'=>'}','['=>']','<'=>'>'); foreach(array('#','/','@','+','%') as $x){ $delimiter[$x] = $x; }
-      $filter = array();
-      foreach($set as $k=>$s){
-          foreach($match as $x=>$y){
-            if($y == NULL || preg_match('#^(true|false|null)$#i', $y)){
-              switch(strtolower($y)){
-                case 'true':
-                  if(!isset($s[$x])){ unset($set[$k]); }
-                  elseif(is_bool($s[$x]) && $s[$x] !== TRUE){ unset($set[$k]); }
-                  break;
-                case 'false':
-                  if(isset($s[$x]) && $s[$x] !== FALSE){ unset($set[$k]); }
-                  break;
-                default: //case NULL
-                  if(isset($s[$x]) && !($s[$x] == NULL)){ unset($set[$k]); }
-              }
-            }
-            elseif(isset($s[$x])){
-              if(!in_array($x, $filter)){$filter[] = $x;}
-              switch(substr($y, 0, 1)){
-                case '#': case '/': case '@': case '+': case '$': case '{': case '(': case '[': case '<':
-                  if(preg_match('@\\'.$delimiter[substr($y, 0, 1)].'(i)?$@', $y)){
-                    if(!preg_match($y, $s[$x])){
-                      unset($set[$k]);
-                    }
-                    break; //if not matched, uses default test
-                  }
-                default:
-                  if($s[$x] != $y){
-                    unset($set[$k]);
-                  }
-              }
-            }
-            else{ //remove when $x is not set in $s
-              if(in_array($x, $filter)){ unset($set[$k]); }
-            }
-          }
-      }
-      if(is_int($limit)){
-        $rdb = array_keys($set);
-        if($limit == 0){
-          $rid = (is_array($rdb) && count($rdb) > 0 ? reset($rdb) : NULL);
-          return reset($set);
-        }
-        reset($set);
-        if(isset($rdb[$limit])){$rid = $rdb[$limit];}
-        for($i=0;$i<=$limit;$i++){ next($set); }
-        return current($set);
-      }
-      return $set;
-    }
-    public static function tag_array_unique($tag="email", $to=array(), $merge=array()){
-        $set = array_merge($to, $merge);
-        $list = array();
-        foreach($set as $i=>$a){
-          if(isset($a[$tag])){
-            if(in_array($a[$tag], $list)){
-              $j = array_search($a[$tag], $list);
-              $set[$j] = array_merge($set[$j], $set[$i]);
-              unset($set[$i]);
-            }
-            $list[$i] = $a[$tag];
-          }
-        }
-        return $set;
-    }
+    /*deprecated*/ public static function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\array_filter($set, $match, $limit, $rid); }
+    /*deprecated*/ public static function tag_array_unique($tag="email", $to=array(), $merge=array()){ deprecated(__METHOD__); return \XLtrace\Hades\tag_array_unique($tag, $to, $merge); }
     public static function mailbox(){
         $note = NULL;
         if(self::authenticated() !== TRUE){ return self::signin(); }
@@ -1180,7 +1341,7 @@ class static_mirror {
         }
         return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? self::encapsule($message, FALSE) : $count);
     }
-    public static function is_emailaddress($email=NULL){ return filter_var($email, FILTER_VALIDATE_EMAIL); }
+    /*deprecated*/ public static function is_emailaddress($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\is_emailaddress($email); }
     public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
         if(!file_exists(self::hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
@@ -1218,118 +1379,12 @@ class static_mirror {
         $response = curl_exec( $ch );
         return ($mode === FALSE ? $response : $message);
     }
-    public static function encrypt($str, $key=FALSE){
-        if(isset($this) && is_bool($key)){ $key = $this->secret; } elseif($key == NULL || is_bool($key)){ return $str; }
-        $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
-        $iv = openssl_random_pseudo_bytes($ivlen);
-        $ciphertext_raw = openssl_encrypt($str, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
-        $hmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
-        $ciphertext = base64_encode( $iv.$hmac.$ciphertext_raw );
-        return $ciphertext;
-    }
-    public static function decrypt($ciphertext, $key=FALSE){
-      if(isset($this) && is_bool($key)){
-        $key = $this->secret;
-      }
-      elseif(is_array($key)){
-        $awnser = FALSE;
-        foreach($key as $i=>$k){
-          $b = (isset($this) ? $this->decrypt($ciphertext, $k) : self::decrypt($ciphertext, $k) );
-          if($b !== FALSE){
-            $awnser = $b;
-            if(isset($this)){
-              $this->last = $k;
-              $this->hit = array_unique(array_merge($this->hit, array($k)));
-            } elseif(defined('JSONplus_KEY_LAST') && defined('JSONplus_KEY_HIT')) {
-              global ${JSONplus_KEY_LAST}, ${JSONplus_KEY_HIT};
-              ${JSONplus_KEY_LAST} = $k;
-              ${JSONplus_KEY_HIT} = array_unique(array_merge((is_array(${JSONplus_KEY_HIT}) ? ${JSONplus_KEY_HIT} : array()), array($k)));
-            }
-            return $awnser;
-          }
-        }
-        return $awnser;
-      }
-      //*debug*/ print_r(array('ciphertext'=>$ciphertext, 'key'=>$key));
-      //$cipher, $key
-      $c = base64_decode($ciphertext);
-      $ivlen = openssl_cipher_iv_length($cipher="AES-128-CBC");
-      $iv = substr($c, 0, $ivlen);
-      if(strlen($iv) < $ivlen){ return FALSE; }
-      $hmac = substr($c, $ivlen, $sha2len=32);
-      $ciphertext_raw = substr($c, $ivlen+$sha2len);
-      $original_plaintext = openssl_decrypt($ciphertext_raw, $cipher, $key, $options=OPENSSL_RAW_DATA, $iv);
-      $calcmac = hash_hmac('sha256', $ciphertext_raw, $key, $as_binary=true);
-      if(FALSE && $ciphertext_raw){ print '<pre>'.str_replace(array('<','>'), array('&lt;','&gt;'), print_r(array(
-        'ciphertext'=>$ciphertext,
-        'c'=>$c,
-        'key'=>$key,
-        'cipher'=>$cipher,
-        'ivlen'=>$ivlen,
-        'iv'=>$iv,
-        'hmac'=>$hmac,
-        'sha2len'=>$sha2len,
-        'ciphertext_raw'=>$ciphertext_raw,
-        'options'=>$options,
-        'original_plaintext'=>$original_plaintext,
-        'calcmac'=>$calcmac
-      ), TRUE)).'</pre>'; }
-      if (hash_equals($hmac, $calcmac)){//PHP 5.6+ timing attack safe comparison
-        return $original_plaintext."\n";
-      }
-      return FALSE;
-    }
-    public static function json_encode($value, $options=0, $depth=512){
-      return (class_exists('JSONplus') ? \JSONplus::encode($value, $options, $depth) : json_encode($value, $options, $depth));
-    }
-    public static function array_urlencode($ar=array(), $sub=FALSE, $implode=TRUE){
-        $set = array();
-        foreach($ar as $k=>$value){
-          $key = (is_bool($sub) ? $k : $sub.'['.$k.']');
-          if(is_array($value)){
-            $set = array_merge($set, self::array_urlencode($value, $key, FALSE));
-          }
-          else{
-            $set[$key] = $key.'='.urlencode($value);
-          }
-        }
-        return ($implode === TRUE ? implode('&', $set) : $set);
-    }
-    public static function file_get_json($file, $as_array=TRUE, $def=FALSE){
-      /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
-      if(is_array($file)){
-        $set = FALSE;
-        foreach($file as $i=>$f){
-          $buffer = self::file_get_json($f, $as_array, $def);
-          if($buffer !== $def && ($as_array === TRUE ? is_array($buffer) : TRUE)){
-            $set = array_merge(($as_array !== TRUE ? array($buffer) : $buffer), (!is_array($set) ? array() : $set));
-          }
-        }
-        return $set;
-      }
-      $puf = parse_url($file);
-      if((is_array($puf) && !isset($puf['schema']) && !isset($puf['host']) ? file_exists($file) : $puf !== FALSE )){
-        $raw = file_get_contents($file);
-        $json = json_decode($raw, (is_bool($as_array) ? $as_array : TRUE));
-        if(!is_bool($as_array)){
-          if(isset($json[$as_array])){ return $json[$as_array]; }
-          else{ return $def; }
-        }
-        else{
-          return $json;
-        }
-      }
-      return $def;
-    }
-    public static function file_put_json($file, $set=array()){
-      if(class_exists('JSONplus')){
-        $jsonstr = \JSONplus::encode($set);
-      }
-      else{
-        $jsonstr = json_encode($set);
-      }
-      return file_put_contents($file, $jsonstr);
-    }
+    /*deprecated*/ public static function encrypt($str, $key=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\encrypt($str, $key); }
+    /*deprecated*/ public static function decrypt($ciphertext, $key=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\decrypt($ciphertext, $key); }
+    /*deprecated*/ public static function json_encode($value, $options=0, $depth=512){ deprecated(__METHOD__); return \XLtrace\Hades\json_encode($value, $options, $depth); }
+    /*deprecated*/ public static function array_urlencode($ar=array(), $sub=FALSE, $implode=TRUE){ deprecated(__METHOD__); return \XLtrace\Hades\array_urlencode($ar, $sub, $implode); }
+    /*deprecated*/ public static function file_get_json($file, $as_array=TRUE, $def=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\file_get_json($file, $as_array, $def); }
+    /*deprecated*/ public static function file_put_json($file, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\file_put_json($file, $set); }
 }
 class module /*extends static_mirror*/ {
   var $for = NULL;

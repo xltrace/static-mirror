@@ -18,6 +18,7 @@ class wiki extends \XLtrace\Hades\module {
           }
         }
     }
+    /*cut short*/ if($str === FALSE){ return FALSE; }
     if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
     if($this->mode == "text/html" && reset($el)!=='html' && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
     return $str;
