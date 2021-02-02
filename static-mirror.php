@@ -74,7 +74,7 @@ function generate_m_hash($emailaddress=NULL){
   /*fix*/ if(!isset($_SERVER['REMOTE_ADDR'])){ $_SERVER['REMOTE_ADDR'] = '127.0.0.1'; }
   //*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
   $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', FALSE);
-  //if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
+  //if(\XLtrace\Hades\is_whitelisted($emailaddress)){ # check if emailaddress exists within database
     $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
     $jsonstr = json_encode($data);
     $m = \XLtrace\Hades\encrypt($jsonstr, $key);
@@ -465,7 +465,7 @@ class static_mirror {
         $this->patch = ($patch === FALSE ? $this->path : $patch);
     }
     public static function detect($for=NULL){
-        if(isset($_POST['m'])){ if(self::authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(self::authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
+        if(isset($_POST['m'])){ if(\XLtrace\Hades\authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(\XLtrace\Hades\authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
         if(defined('HADES_MODULES') && !in_array(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for)), array('initial','update','upgrade','signin','signoff','status.json'))){
           $l = explode('|', HADES_MODULES);
           foreach($l as $i=>$mod){
@@ -480,22 +480,22 @@ class static_mirror {
             case 'backup': self::backup(); break;
             case 'update': self::update(); break;
             case 'upgrade': self::upgrade(); break;
-            case 'signin': case 'authenticate': case 'login': self::signin(); break;
-            case 'signoff': case 'signout': case 'logout': self::signoff(); break;
+            case 'signin': case 'authenticate': case 'login': return \XLtrace\Hades\signin(); break;
+            case 'signoff': case 'signout': case 'logout': return \XLtrace\Hades\signoff(); break;
             case 'configure': self::configure(); break;
             case 'management': self::management(); break;
             case 'duplicate': self::duplicate(); break;
             case 'decrypt': self::decrypt_module(); break;
             case 'hit': self::hermes_hit(); break;
             case 'mailbox': self::mailbox(); break;
-            case '404': case 'hermes': case 'hermes.json': case basename(self::alias_file()): case basename(self::hermes_file()): case basename(self::addressbook_file()): case basename(self::slaves_file()): case basename(self::mailbox_file()): case basename(self::short_file()): case basename(self::static_mirror_file()):
+            case '404': case 'hermes': case 'hermes.json': case basename(\XLtrace\Hades\alias_file()): case basename(\XLtrace\Hades\hermes_file()): case basename(\XLtrace\Hades\addressbook_file()): case basename(\XLtrace\Hades\slaves_file()): case basename(\XLtrace\Hades\mailbox_file()): case basename(\XLtrace\Hades\short_file()): case basename(\XLtrace\Hades\static_mirror_file()):
                 header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; break;
             case 'status': self::status(); return FALSE; break;
             case 'status.json': header('content-type: application/json'); self::status_json(); return TRUE; break;
             default:
                 if(isset($for) && strlen($for) > 0){
                     if(!self::alias($for, TRUE)){
-                        $smdb = self::file_get_json(self::static_mirror_file(), TRUE, array());
+                        $smdb = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
                         if(isset($smdb[$for])){ self::update($for); return TRUE; }
                         self::grab($for);
                     }
@@ -526,8 +526,8 @@ class static_mirror {
 
         $preg = '#^[\?]?(http[s]?|ftp)#';
 
-        if(file_exists(self::alias_file())){
-          $db = self::file_get_json(self::alias_file(), TRUE, array());
+        if(file_exists(\XLtrace\Hades\alias_file())){
+          $db = \XLtrace\Hades\file_get_json(\XLtrace\Hades\alias_file(), TRUE, array());
         } else { return FALSE; }
 
         if(isset($db[strtolower($path)])){
@@ -612,15 +612,15 @@ class static_mirror {
         $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
         if((function_exists('curl_init') && function_exists('curl_setopt') && function_exists('curl_exec')) && ((isset($G) && is_array($G) && count($G) > 0) || (isset($P) && is_array($P) && count($P) > 0))){
             //grab through CURL an uncached version, and do not cache
-            $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
+            $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $url = parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for;
 
-            $url = $url.'?'.self::array_urlencode($G);
+            $url = $url.'?'.\XLtrace\Hades\array_urlencode($G);
             $ch = curl_init( $url );
             curl_setopt( $ch, CURLOPT_POST, 1);
-            curl_setopt( $ch, CURLOPT_POSTFIELDS, self::array_urlencode($P));
+            curl_setopt( $ch, CURLOPT_POSTFIELDS, \XLtrace\Hades\array_urlencode($P));
             curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
             curl_setopt( $ch, CURLOPT_HEADER, 0);
             curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
@@ -628,16 +628,16 @@ class static_mirror {
 
             if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
-            print self::url_patch($raw, $allow_patch);
+            print \XLtrace\Hades\url_patch($raw, $allow_patch);
         }
         elseif(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
-            print self::url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)), $allow_patch);
+            print \XLtrace\Hades\url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)), $allow_patch);
         }
         elseif(file_exists($path.basename($for))){
-            print self::url_patch(file_get_contents($path.$alias), $allow_patch);
+            print \XLtrace\Hades\url_patch(file_get_contents($path.$alias), $allow_patch);
         }
         else {
-            $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
+            $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
             $src = reset($conf);
             if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
             $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
@@ -645,7 +645,7 @@ class static_mirror {
             if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
             file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
             //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
-            print self::url_patch($raw, $allow_patch);
+            print \XLtrace\Hades\url_patch($raw, $allow_patch);
         }
         return TRUE;
     }
@@ -664,7 +664,7 @@ class static_mirror {
         if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
         if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
-        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', self::json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
+        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', \XLtrace\Hades\json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
         return TRUE;
     }
     public static function update($file='index.html'){
@@ -682,7 +682,7 @@ class static_mirror {
 
         if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
 
-        $conf = self::file_get_json(self::static_mirror_file(), TRUE, array());
+        $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
         if(isset($conf[$file])){ $src = $conf[$file]; }
         else{ $src = reset($conf); $file = 'index.html'; }
 
@@ -698,7 +698,7 @@ class static_mirror {
         $raw = self::apply_patch($raw);
 
         file_put_contents($path.$file, $raw);
-        print self::url_patch($raw);
+        print \XLtrace\Hades\url_patch($raw);
         return $raw;
     }
     public static function apply_patch($raw=NULL){
@@ -746,13 +746,13 @@ class static_mirror {
         return $raw;
     }
     public static function upgrade(){
-        $raw = file_get_contents(self::raw_git_path()."static-mirror.php");
+        $raw = file_get_contents(\XLtrace\Hades\raw_git_path()."static-mirror.php");
         self::hermes('upgrade');
         if(isset($_GET['all'])){ self::run_slaves('upgrade'); }
         if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
             file_put_contents(__FILE__, $raw);
             foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
-                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents(self::raw_git_path().$f)); }
+                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents(\XLtrace\Hades\raw_git_path().$f)); }
             }
             $html = "Upgrade complete";
             self::encapsule($html, TRUE);
@@ -798,25 +798,25 @@ class static_mirror {
         return FALSE;
       }
       $mode = NULL;
-      $key = self::file_get_json(self::hermes_file(), 'key', FALSE);
+      $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', FALSE);
       if(isset($emailaddress)){
         $mode = 'request';
-        if(self::is_whitelisted($emailaddress)){ # check if emailaddress exists within database
+        if(\XLtrace\Hades\is_whitelisted($emailaddress)){ # check if emailaddress exists within database
           $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
           $jsonstr = json_encode($data);
-          $m = self::encrypt($jsonstr, $key);
-          $short = self::put_short_by_m($m);
-          $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>self::current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>self::current_URI() ));
+          $m = \XLtrace\Hades\encrypt($jsonstr, $key);
+          $short = \XLtrace\Hades\put_short_by_m($m);
+          $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>\XLtrace\Hades\current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>\XLtrace\Hades\current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>\XLtrace\Hades\current_URI() ));
           //*debug*/ print '<pre>'; print_r($fs); print '</pre>';
-          //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = self::encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
-          # email by PHPMailer $data['e'] := self::current_URI($m)
+          //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = \XLtrace\Hades\encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
+          # email by PHPMailer $data['e'] := \XLtrace\Hades\current_URI($m)
           self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $emailaddress, $fs);
         } else { //emailaddress is not whitelisted!!
           $mode = 'request-failed';
         }
       } elseif(isset($_GET['m'])){
         $mode = 'receive';
-        self::authenticate_by_hash($_GET['m'], $key);
+        \XLtrace\Hades\authenticate_by_hash($_GET['m'], $key);
       }
       switch(strtolower($mode)){
         case 'receive':
@@ -916,42 +916,42 @@ class static_mirror {
         $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
         $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
         $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
-        $stat['hermes'] = (file_exists(self::hermes_file()) && $stat['curl']);
+        $stat['hermes'] = (file_exists(\XLtrace\Hades\hermes_file()) && $stat['curl']);
         if($stat['hermes'] === TRUE){
-          $hermes = self::file_get_json(self::hermes_file(), TRUE, array());
+          $hermes = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
           $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
         }
-        $stat['configured'] = file_exists(self::static_mirror_file());
-        $stat['alias'] = file_exists(self::alias_file());
+        $stat['configured'] = file_exists(\XLtrace\Hades\static_mirror_file());
+        $stat['alias'] = file_exists(\XLtrace\Hades\alias_file());
         if($stat['alias'] === TRUE){
-          $alias = self::file_get_json(self::alias_file(), TRUE, array());
+          $alias = \XLtrace\Hades\file_get_json(\XLtrace\Hades\alias_file(), TRUE, array());
           if(isset($alias['#'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['#']); }
           if(isset($alias['*'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['*']); }
           $stat['alias-count'] = count($alias);
-          $stat['alias-mod-upoch'] = @filemtime(self::alias_file());
+          $stat['alias-mod-upoch'] = @filemtime(\XLtrace\Hades\alias_file());
           $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
-          $stat['alias-fingerprint'] = md5_file(self::alias_file());
+          $stat['alias-fingerprint'] = md5_file(\XLtrace\Hades\alias_file());
         }
-        $stat['mirror'] = count(self::file_get_json(self::static_mirror_file(), TRUE, array()));
+        $stat['mirror'] = count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array()));
         $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
         $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
         $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
         $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
         $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
-        $stat['addressbook'] = (file_exists(self::addressbook_file()) ? count(self::file_get_json(self::addressbook_file(), TRUE, array())) : FALSE);
-        $stat['whitelist'] = (file_exists(self::whitelist_file()) ? count(self::file_get_json(self::whitelist_file(), TRUE, array())) : FALSE);
+        $stat['addressbook'] = (file_exists(\XLtrace\Hades\addressbook_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\addressbook_file(), TRUE, array())) : FALSE);
+        $stat['whitelist'] = (file_exists(\XLtrace\Hades\whitelist_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\whitelist_file(), TRUE, array())) : FALSE);
         $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
         $stat['hades'] = (defined('HADES_MODULES') && TRUE); //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
         $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
         $stat['wiki'] = ($stat['hades'] && class_exists('\XLtrace\hades\module\wiki')); //future feature: HADES module WIKI (depends on JSONplus/markdown)
-        $stat['slaves'] = (file_exists(self::slaves_file()) ? count(self::file_get_json(self::slaves_file(), TRUE, array())) : 0);
+        $stat['slaves'] = (file_exists(\XLtrace\Hades\slaves_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array())) : 0);
         $stat['2ndFA'] = $stat['mailbox'] = FALSE; /*placeholder*/
         $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
         $stat['registery'] = FALSE; //future feature: allow visitors to leave their email-emailaddress in mailinglist.json
         $stat['active-mirror'] = FALSE; //future feature: enables active mirroring, for example when form-data is being committed. Form-data will be forwarded.
         $stat['backup'] = FALSE; //future feature: allow to backup the settings with the patch into an zip-file
         ksort($stat);
-        $stat['URI'] = self::current_URI();
+        $stat['URI'] = \XLtrace\Hades\current_URI();
         $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
         $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
         $stat['JSONplus'] = (class_exists('JSONplus'));
@@ -962,38 +962,38 @@ class static_mirror {
         }
         $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
         $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer') && STATIC_MIRROR_ALLOW_MAIL !== FALSE);
-        $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(self::mailbox_file()));
+        $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(\XLtrace\Hades\mailbox_file()));
         $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['mailbox'] && $stat['whitelist'] !== FALSE);
         /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
         foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ if(isset($_SERVER[$s])){ $stat[$s] = $_SERVER[$s]; } } #|HTTP_HOST
         if($json !== FALSE){
-          $json[self::current_URI()] = $stat;
+          $json[\XLtrace\Hades\current_URI()] = $stat;
         }
         else{
           $json = $stat;
         }
         if($print === TRUE){
-          print self::json_encode($json); exit;
+          print \XLtrace\Hades\json_encode($json); exit;
           print FALSE;
         }
         else { return $json; }
     }
     /*deprecated*/ public static function current_URI($el=NULL, $pl=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\current_URI($el, $pl, $set); }
     public static function configure(){
-        if(!file_exists(self::hermes_file())){
+        if(!file_exists(\XLtrace\Hades\hermes_file())){
             if(isset($_POST['token'])){
               $data = array('key'=>$_POST['token']);
               if(isset($_POST['url']) && (parse_url($_POST['url']) !== FALSE)){ $data['url'] = $_POST['url']; }
-              file_put_contents(self::hermes_file(), str_replace('\/', '/', self::json_encode($data)));
+              file_put_contents(\XLtrace\Hades\hermes_file(), str_replace('\/', '/', \XLtrace\Hades\json_encode($data)));
               self::initial();
               return self::configure();
             }
-            $html = '<form method="POST"><table><tr><td>Hermes remote:</td><td><input name="url" type="url" placeholder="'.self::hermes_default_remote().'" value="'.self::hermes_default_remote().'"/></td></tr><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Configure" /></td></tr></table></form>';
+            $html = '<form method="POST"><table><tr><td>Hermes remote:</td><td><input name="url" type="url" placeholder="'.\XLtrace\Hades\hermes_default_remote().'" value="'.\XLtrace\Hades\hermes_default_remote().'"/></td></tr><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Configure" /></td></tr></table></form>';
             self::encapsule($html, TRUE);
             return FALSE;
         }
-        $success = self::authenticated(); // catch authenticated form data, so save token as cookie
-        if($success !== TRUE){ return self::signin(); }
+        $success = \XLtrace\Hades\authenticated(); // catch authenticated form data, so save token as cookie
+        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
         $html = "Configure Static-Mirror";
         //edit static-mirror.json = { page: src, page: src } | where page="index.html"
         //edit patch (before/after)
@@ -1002,8 +1002,8 @@ class static_mirror {
         return FALSE;
     }
     public static function management(){
-        $success = self::authenticated();
-        if($success !== TRUE){ return self::signin(); }
+        $success = \XLtrace\Hades\authenticated();
+        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
         $html = "<h2>Management module</h2>";
         //edit slaves.json = [ url, url ]
         //edit hermes.json = {"url": url, "key": key}
@@ -1039,8 +1039,8 @@ class static_mirror {
     }
     public static function duplicate(){
         $error = array();
-        $success = self::authenticated();
-        if($success !== TRUE){ return self::signin(); }
+        $success = \XLtrace\Hades\authenticated();
+        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
         $html = "Duplication Module";
         //edit slaves.json = [ url, url ]
         if(isset($_POST['path'])){ //duplicate static-mirror.php to $path
@@ -1055,7 +1055,7 @@ class static_mirror {
             if(file_exists($map) && is_dir($map)){
               @file_put_contents($map.basename(__FILE__), file_get_contents(__FILE__));
               if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
-                @file_put_contents($map.basename(self::hermes_file()), file_get_contents(self::hermes_file()));
+                @file_put_contents($map.basename(\XLtrace\Hades\hermes_file()), file_get_contents(\XLtrace\Hades\hermes_file()));
               }
             }
             else{ $error[] = $map.' does not exist.';}
@@ -1067,12 +1067,12 @@ class static_mirror {
               if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
                 file_get_contents($ns.'static-mirror.php?for=initial');
               }
-              $slaves = self::file_get_json(self::slaves_file(), TRUE, array());
+              $slaves = \XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array());
               /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
               if(!in_array($ns, $slaves)){
-                if(self::url_is_valid_status_json($ns)){
+                if(\XLtrace\Hades\url_is_valid_status_json($ns)){
                   $slaves[] = $ns;
-                  file_put_contents(self::slaves_file(), self::json_encode($slaves));
+                  file_put_contents(\XLtrace\Hades\slaves_file(), \XLtrace\Hades\json_encode($slaves));
                 } else { $error[] = $ns.' is not (yet) a valid static-mirror'; }
               }
               else { $error[] = $ns.' is already a slave'; }
@@ -1086,15 +1086,15 @@ class static_mirror {
     }
     public static function decrypt_module(){
         $error = array();
-        $success = self::authenticated();
-        if($success !== TRUE){ return self::signin(); }
+        $success = \XLtrace\Hades\authenticated();
+        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
         $html = "Decrypt Module";
         //edit slaves.json = [ url, url ]
         $result = NULL;
         if(isset($_POST['raw'])){ //duplicate static-mirror.php to $path
-          $json = self::file_get_json(self::hermes_file(), TRUE, array());
+          $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
           $tokens = (isset($_POST['tokens']) && strlen($_POST['tokens'])>0 ? $_POST['tokens'] : $json['key']);
-          $result = self::decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
+          $result = \XLtrace\Hades\decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
         }
         $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($result, TRUE) : NULL);
         $html = '<pre>'.$debug.'</pre><form method="POST" action="decrypt"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table></form>';
@@ -1116,8 +1116,8 @@ class static_mirror {
     }
     public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
         if(!is_array($list) || count($list) == 0){
-            if(!file_exists(self::slaves_file())){ return FALSE; }
-            $list = self::file_get_json(self::slaves_file(), TRUE, array());
+            if(!file_exists(\XLtrace\Hades\slaves_file())){ return FALSE; }
+            $list = \XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array());
         }
         $bool = TRUE; $json = array();
         foreach($list as $i=>$url){
@@ -1126,11 +1126,11 @@ class static_mirror {
             switch(strtolower($action)){
               case 'upgrade': case 'update':
                 $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').strtolower($action);
-                $buffer = file_get_contents(self::build_url($pu));
+                $buffer = file_get_contents(\XLtrace\Hades\build_url($pu));
                 break;
               case 'status': case 'status.json':
                 $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').'status.json';
-                $json[$url] = self::file_get_json(self::build_url($pu));
+                $json[$url] = \XLtrace\Hades\file_get_json(\XLtrace\Hades\build_url($pu));
                 break;
               default:
                 $bool = FALSE;
@@ -1186,10 +1186,10 @@ class static_mirror {
         return $to;
     }
     public static function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){
-        $set = ($set === TRUE ? self::file_get_json(self::addressbook_file(), TRUE, array()) : (is_array($set) ? $set : array()) );
+        $set = ($set === TRUE ? \XLtrace\Hades\file_get_json(\XLtrace\Hades\addressbook_file(), TRUE, array()) : (is_array($set) ? $set : array()) );
         foreach($to as $i=>$t){
-          if(is_string($t)){ $to[$i] = self::array_filter($set, array($tag=>$t), 0); }
-          elseif(is_array($t) && isset($t[$tag])){ $m = self::array_filter($set, array($tag=>$t[$tag]), 0); $to[$i] = array_merge($t, (is_array($m) ? $m : array())); }
+          if(is_string($t)){ $to[$i] = \XLtrace\Hades\array_filter($set, array($tag=>$t), 0); }
+          elseif(is_array($t) && isset($t[$tag])){ $m = \XLtrace\Hades\array_filter($set, array($tag=>$t[$tag]), 0); $to[$i] = array_merge($t, (is_array($m) ? $m : array())); }
         }
         return $to;
     }
@@ -1197,24 +1197,24 @@ class static_mirror {
     /*deprecated*/ public static function tag_array_unique($tag="email", $to=array(), $merge=array()){ deprecated(__METHOD__); return \XLtrace\Hades\tag_array_unique($tag, $to, $merge); }
     public static function mailbox(){
         $note = NULL;
-        if(self::authenticated() !== TRUE){ return self::signin(); }
+        if(\XLtrace\Hades\authenticated() !== TRUE){ return \XLtrace\Hades\signin(); }
         $s = self::status_json(FALSE);
         if($s['PHPMailer'] === false){ return self::encapsule('Unable to send email.', TRUE); }
         $set = array();
-        /*settings*/ $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
+        /*settings*/ $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
         $set['title'] = (isset($_POST['title']) ? $_POST['title'] : (isset($_GET['title']) ? $_GET['title'] : NULL));
         // note you should proces $_POST['raw'] for commandline execution
         foreach(array('to','cc','bcc','reply-to','from') as $m){
           $set[$m] = (isset($_POST[$m]) ? array_merge((isset($set[$m]) && is_array($set[$m]) ? $set[$m] : array()), self::emailaddress_str2array($_POST[$m])) : (isset($set[$m]) ? $set[$m] : array() ));
-          $set[$m] = self::tag_array_unique('email', $set[$m]);
+          $set[$m] = \XLtrace\Hades\tag_array_unique('email', $set[$m]);
           $set[$m] = self::emailaddress_autocomplete($set[$m]);
           if(in_array($m, array('reply-to','from'))){ $set[$m] = end($set[$m]); }
           $set[$m.'Str'] = self::emailaddress_array2str($set[$m]);
         }
         //*debug*/ print '<pre>'; print_r($set); print '</pre>';
 
-        /*settings*/ $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
+        /*settings*/ $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         $note = self::send_mail($set);
 
         //*debug*/ print '<pre>'; print_r($_POST); print_r($set); print '</pre>';
@@ -1240,8 +1240,8 @@ class static_mirror {
         $count = 0;
         /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
         /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); $message = (isset($set['message']) ? $set['message'] : $message); if($to === FALSE && isset($set['to'])){ $to = $set['to']; } }
-        $set = array_merge(self::file_get_json(self::mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
-        //if(self::authenticated() !== TRUE){ return FALSE/*self::signin()*/; }
+        $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
+        //if(\XLtrace\Hades\authenticated() !== TRUE){ return FALSE/*\XLtrace\Hades\signin()*/; }
         if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
           $message = (file_exists($message) ? file_get_contents($message) : NULL); //grab $message
           switch($ext[1]){
@@ -1255,7 +1255,7 @@ class static_mirror {
         /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']); }
         foreach($to as $i=>$t){
           if(is_string($t)){ $t = array('email'=>trim($t)); }
-          if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && self::is_emailaddress($t['email'])){
+          if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && \XLtrace\Hades\is_emailaddress($t['email'])){
             /*debug*/ print "Send email to: ".$t['email']."\n";
 
             $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
@@ -1303,12 +1303,12 @@ class static_mirror {
               if(isset($set[$v])){
                 if(is_string($set[$v]) || (is_array($set[$v]) && isset($set[$v]['email'])) ){ $set[$v] = array($set[$v]); }
                 if(is_array($set[$v])){foreach($set[$v] as $j=>$w){
-                  if(is_array($w) && isset($w['email']) && self::is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
-                  elseif(is_string($w) && self::is_emailaddress($w)){ $mail->$m($w); }
+                  if(is_array($w) && isset($w['email']) && \XLtrace\Hades\is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
+                  elseif(is_string($w) && \XLtrace\Hades\is_emailaddress($w)){ $mail->$m($w); }
                 }}
               }
             }
-            if(isset($set['confirmreadingto']) && self::is_emailaddress($set['confirmreadingto'])){
+            if(isset($set['confirmreadingto']) && \XLtrace\Hades\is_emailaddress($set['confirmreadingto'])){
               $mail->ConfirmReadingTo = $set['confirmreadingto'];
               $mail->AddCustomHeader( "X-Confirm-Reading-To: ".$set['confirmreadingto'] );
               $mail->AddCustomHeader( "Return-Receipt-To: ".$set['confirmreadingto'] );
@@ -1343,17 +1343,17 @@ class static_mirror {
     }
     /*deprecated*/ public static function is_emailaddress($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\is_emailaddress($email); }
     public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
-        if(!file_exists(self::hermes_file())){ return FALSE; }
+        if(!file_exists(\XLtrace\Hades\hermes_file())){ return FALSE; }
         if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
         # $path + $url + $key
-        $set = self::file_get_json(self::hermes_file(), TRUE, array());
-        $url = (isset($set['url']) ? $set['url'] : self::hermes_default_remote());
+        $set = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
+        $url = (isset($set['url']) ? $set['url'] : \XLtrace\Hades\hermes_default_remote());
         $key = (isset($set['key']) ? $set['key'] : FALSE);
         $message = array(
             "when"=>date('c'),
             "stamp"=>date('U'),
             "identity"=>substr(md5((isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')), 0, 24),
-            "HTTP_HOST"=>self::current_URI(),
+            "HTTP_HOST"=>\XLtrace\Hades\current_URI(),
             "load"=>$path,
             "HTTP_USER_AGENT"=>(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'cli'),
             "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')
@@ -1366,7 +1366,7 @@ class static_mirror {
           if(isset($P) && is_array($P) && count($P) > 0){ $message['_POST'] = $P; }
         }
         $message = json_encode($message);
-        if($key !== FALSE){ $message = self::encrypt($message, $key); }
+        if($key !== FALSE){ $message = \XLtrace\Hades\encrypt($message, $key); }
         //*debug*/ print '<!-- HERMES: '.$message.' -->';
         /*fix if curl not exists*/ if($mode === NULL){ return $message; }
         $fm = 'json='.$message; //&var=
