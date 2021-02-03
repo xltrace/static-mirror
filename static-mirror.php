@@ -23,14 +23,18 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
 }
 function get($for=NULL, &$set=array(), $module=FALSE){
   /*fix*/ $mod = $module; if($mod === FALSE){ $mod = '\\XLtrace\\Hades\\static_mirror'; }
+  /*fix*/ if(is_array($module)){ $mod = '\\Xltrace\\Hades\\module'; }
   if(!(substr($mod, 0, 1) == '\\')){
     if(file_exists(__DIR__.'/module.'.$mod.'.php')){ require_once(__DIR__.'/module.'.$mod.'.php'); }
     $mod = '\\XLtrace\\Hades\\module\\'.$module;
     if(!class_exists($mod)){ $module = '\\XLtrace\\Hades\\'.$mod; }
   }
   if(!class_exists($mod) || !method_exists($mod, 'get')){ return FALSE; }
-  $sm = new $mod(STATIC_MIRROR_BASE);
-  return $sm->get($for, $set);
+  $sm = new $mod((is_array($module) ? $module : STATIC_MIRROR_BASE));
+  $str = $sm->get($for, $set);
+  if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
+  if($sm->get_mode() == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+  return $str;
 }
 function deprecated($item=NULL){ if(isset($_GET['debug']) && in_array($_GET['debug'], array('true','yes',TRUE))){ print ($item === NULL ? 'A method being used' : $item).' is being deprecated.'."\n"; } }
 
@@ -1395,6 +1399,7 @@ class static_mirror extends oldjunk {
 }
 /**********************************************************************/
 /**********************************************************************/
+function module_var_list(){ return array('mode','mapper','root','for','path','patch'); }
 class module {
   var $for = NULL;
   var $set = array();
@@ -1402,7 +1407,7 @@ class module {
   var $mapper = FALSE; // __FILE__ .json
   var $root = FALSE;
   function __construct($settings=array()){
-    foreach(array('mode','mapper','root','for','path','patch') as $el){
+    foreach(\Xltrace\Hades\module_var_list() as $el){
       if(isset($settings[$el]) && isset($this->$el)){ $this->$el = $settings[$el]; }
     }
     if($this->root == FALSE && $this->mapper !== FALSE){ $this->root = dirname($this->mapper); }

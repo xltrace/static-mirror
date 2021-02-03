@@ -9,14 +9,20 @@ if(file_exists(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php')){ require_onc
 require_once(__DIR__.'/static-mirror.php');
 
 $settings = array('mapper'=>str_replace('.php','.json',__FILE__));
-if(isset($_GET['mapper'])){ $settings['mapper'] = $_GET['mapper']; }
-$module = new \XLtrace\Hades\module($settings);
+foreach(\XLtrace\Hades\module_var_list() as $z){
+  if(isset($_GET[$z])){ $settings[$z] = $_GET[$z]; }
+}
+$set = array();
 
 //print_r($module);
 //print_r($module->all_templates());
 //var_dump($module->detect($_GET['for']));
 //var_dump($module->get($_GET['for']));
-print $module->get((isset($_GET['for']) ? $_GET['for'] : NULL));
+
+$module = new \XLtrace\Hades\module($settings);
+print $module->get((isset($_GET['for']) ? $_GET['for'] : NULL), $set);
+
+//print \XLtrace\Hades\get((isset($_GET['for']) ? $_GET['for'] : NULL), $set, $settings);
 
 /*debug*/ if(isset($_GET['debug'])){
   switch($_GET['debug']){
