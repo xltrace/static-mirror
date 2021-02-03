@@ -21,9 +21,16 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
-function get($for=NULL, &$set=array()){
-  $sm = new static_mirror(STATIC_MIRROR_BASE);
-  return $sm->detect($for, $set);
+function get($for=NULL, &$set=array(), $module=FALSE){
+  /*fix*/ $mod = $module; if($mod === FALSE){ $mod = '\\XLtrace\\Hades\\static_mirror'; }
+  if(!(substr($mod, 0, 1) == '\\')){
+    if(file_exists(__DIR__.'/module.'.$mod.'.php')){ require_once(__DIR__.'/module.'.$mod.'.php'); }
+    $mod = '\\XLtrace\\Hades\\module\\'.$module;
+    if(!class_exists($mod)){ $module = '\\XLtrace\\Hades\\'.$mod; }
+  }
+  if(!class_exists($mod) || !method_exists($mod, 'get')){ return FALSE; }
+  $sm = new $mod(STATIC_MIRROR_BASE);
+  return $sm->get($for, $set);
 }
 function deprecated($item=NULL){ if(isset($_GET['debug']) && in_array($_GET['debug'], array('true','yes',TRUE))){ print ($item === NULL ? 'A method being used' : $item).' is being deprecated.'."\n"; } }
 
@@ -436,15 +443,155 @@ function decrypt($ciphertext, $key=FALSE){
   }
   return FALSE;
 }
+function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
+  if(!file_exists(\XLtrace\Hades\hermes_file())){ return FALSE; }
+  if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
+  # $path + $url + $key
+  $set = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
+  $url = (isset($set['url']) ? $set['url'] : \XLtrace\Hades\hermes_default_remote());
+  $key = (isset($set['key']) ? $set['key'] : FALSE);
+  $message = array(
+    "when"=>date('c'),
+    "stamp"=>date('U'),
+    "identity"=>substr(md5((isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')), 0, 24),
+    "HTTP_HOST"=>\XLtrace\Hades\current_URI(),
+    "load"=>$path,
+    "HTTP_USER_AGENT"=>(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'cli'),
+    "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')
+  );
+  if(isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])){ $message["HTTP_ACCEPT_LANGUAGE"] = $_SERVER['HTTP_ACCEPT_LANGUAGE']; }
+  //$message['item'] = $message['load'];
+  if($addpostget !== FALSE){
+    $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
+    if(isset($G) && is_array($G) && count($G) > 0){ $message['_GET'] = $G; }
+    if(isset($P) && is_array($P) && count($P) > 0){ $message['_POST'] = $P; }
+  }
+  $message = json_encode($message);
+  if($key !== FALSE){ $message = \XLtrace\Hades\encrypt($message, $key); }
+  //*debug*/ print '<!-- HERMES: '.$message.' -->';
+  /*fix if curl not exists*/ if($mode === NULL){ return $message; }
+  $fm = 'json='.$message; //&var=
+  $ch = curl_init( $url );
+  curl_setopt( $ch, CURLOPT_POST, 1);
+  curl_setopt( $ch, CURLOPT_POSTFIELDS, $fm);
+  curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
+  curl_setopt( $ch, CURLOPT_HEADER, 0);
+  curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
+  $response = curl_exec( $ch );
+  return ($mode === FALSE ? $response : $message);
+}
+function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
+  if(defined('HADES_ALLOW_MAIL') && HADES_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
+  $count = 0;
+  /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
+  /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); $message = (isset($set['message']) ? $set['message'] : $message); if($to === FALSE && isset($set['to'])){ $to = $set['to']; } }
+  $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
+  //if(\XLtrace\Hades\authenticated() !== TRUE){ return FALSE/*\XLtrace\Hades\signin()*/; }
+  if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
+    $message = (file_exists($message) ? file_get_contents($message) : NULL); //grab $message
+    switch($ext[1]){
+      case 'md':
+        $message = ($message); //parse markdown
+        break;
+      //case 'html': default: //do nothing to change input
+    }
+  }
+  /* json / single or non addressy fix */ if(!is_array($to)){ if(is_string($to)){ $to = (preg_match('#^\s*[\[\{]#', $to) && preg_match('#[\]\}]\s*$#', $to) ? json_decode($to, TRUE) : \XLtrace\Hades\emailaddress_str2array($to)); } else{ $to = array(); } }
+  /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']); }
+  foreach($to as $i=>$t){
+    if(is_string($t)){ $t = array('email'=>trim($t)); }
+    if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && \XLtrace\Hades\is_emailaddress($t['email'])){
+      /*debug*/ print "Send email to: ".$t['email']."\n";
+
+      $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
+
+      foreach(array('CharSet','Ical','Timeout') as $act){
+        if(isset($set[strtolower($act)])){ $mail->$act = $set[strtolower($act)]; }
+      }
+
+      if((isset($set['smtp']) && $set['smtp'] === TRUE) || isset($set['smtp-auth'])){
+        if(isset($set['smtp-debug'])){
+          /*fix*/ if(is_string($set['smtp-debug'])){ $set['smtp-debug'] = strtoupper($set['smtp-debug']); }
+          switch($set['smtp-debug']){
+            case FALSE: case 'OFF': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_OFF; break;
+            case NULL: case 'CLIENT': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_CLIENT; break;
+            case TRUE: case 'SERVER': default: $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_SERVER;
+          }
+        }
+        $mail->isSMTP();
+        if(isset($set['smtp-auth'])){
+          $mail->SMTPAuth = (is_bool($set['smtp-auth']) && $set['smtp-auth'] === TRUE ? TRUE : FALSE);
+          $mail->SMTPSecure = (isset($set['tls']) ? \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS);
+          if(isset($set['smtp-options'])){ $mail->SMTPOptions = $set['smtp-options']; }
+        }
+        $mail->Host = $set['host'];
+        if(isset($set['username'])){ $mail->Username   = $set['username']; }
+        if(isset($set['password'])){ $mail->Password   = $set['password']; }
+        $mail->Port = (isset($set['port']) && is_int($set['port']) ? $set['port'] : (FALSE ? 25 : (isset($set['tls']) ? 587 : 465))); //25, 456, 587
+      }
+      elseif(isset($set['sendmail']) && $set['sendmail'] === TRUE){
+        $mail->isSendmail();
+      }
+
+      if(FALSE){ //smime signed mail
+        $mail->sign(
+          $set['crt'],
+          $set['key'],
+          (FALSE ? $set['spkp'] : NULL),
+          $set['pem']
+        );
+      }
+      //DKIM: https://github.com/PHPMailer/PHPMailer/blob/master/examples/DKIM_sign.phps
+
+      //Recipients
+      foreach(array('from'=>'setFrom','to'=>'addAddress','reply-to'=>'addReplyTo','cc'=>'addCC','bcc'=>'addBCC') as $v=>$m){
+        if(isset($set[$v])){
+          if(is_string($set[$v]) || (is_array($set[$v]) && isset($set[$v]['email'])) ){ $set[$v] = array($set[$v]); }
+          if(is_array($set[$v])){foreach($set[$v] as $j=>$w){
+            if(is_array($w) && isset($w['email']) && \XLtrace\Hades\is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
+            elseif(is_string($w) && \XLtrace\Hades\is_emailaddress($w)){ $mail->$m($w); }
+          }}
+        }
+      }
+      if(isset($set['confirmreadingto']) && \XLtrace\Hades\is_emailaddress($set['confirmreadingto'])){
+        $mail->ConfirmReadingTo = $set['confirmreadingto'];
+        $mail->AddCustomHeader( "X-Confirm-Reading-To: ".$set['confirmreadingto'] );
+        $mail->AddCustomHeader( "Return-Receipt-To: ".$set['confirmreadingto'] );
+        $mail->AddCustomHeader( "Disposition-Notification-To: ".$set['confirmreadingto'] );
+      }
+      if(isset($t['name'])){ $mail->addAddress($t['email'], $t['name']); } else { $mail->addAddress($t['email']); }
+
+      // Attachments
+      if(isset($set['attachment'])){
+        if(!is_array($set['attachment'])){ $set['attachment'] = array($set['attachment']); }
+        foreach($set['attachment'] as $j=>$a){
+          if(is_array($a) && isset($a['src']) && file_exists($a['src']) && isset($a['name'])){ $mail->addAttachment($a['src'], $a['name']); }
+          elseif(is_string($a) && file_exists($a)){ $mail->addAttachment($a); }
+        }
+      }
+
+      // Content
+      $mail->isHTML(true);
+      $mail->Subject = $title;
+      //$mail->msgHTML(file_get_contents('contents.html'), __DIR__);
+      $mail->Body    = $message; //self::encapsule($message, FALSE, (isset($set['template']) ? $set['template']  : 'email.html'));
+      $mail->AltBody = trim($message); //todo: html clean
+
+      if(!isset($_GET['debug'])){ $mail->send(); } else { print_r($mail); }
+
+      //save on imap like gmail: https://github.com/PHPMailer/PHPMailer/blob/master/examples/gmail.phps
+
+      $count++;
+    }
+  }
+  return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? /*self::encapsule($message, FALSE)*/$message : $count);
+}
 
 /**********************************************************************/
 /**********************************************************************/
 /**********************************************************************/
 /**********************************************************************/
-/**********************************************************************/
-/**********************************************************************/
-
-class static_mirror {
+class oldjunk extends module {
     var $path;
     var $patch;
 
@@ -460,11 +607,7 @@ class static_mirror {
     /*deprecated*/ public static function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
     /*deprecated*/ public static function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
 
-    function __construct($path, $patch=FALSE){
-        $this->path = $path;
-        $this->patch = ($patch === FALSE ? $this->path : $patch);
-    }
-    public static function detect($for=NULL){
+    function get($for=NULL, &$set=array()){
         if(isset($_POST['m'])){ if(\XLtrace\Hades\authenticate_by_hash($_POST['m'])){ $_SESSION['m'] = $_POST['m']; } } elseif(isset($_GET['m'])){ if(\XLtrace\Hades\authenticate_by_hash($_GET['m'])){ $_SESSION['m'] = $_GET['m']; } }
         if(defined('HADES_MODULES') && !in_array(strtolower(preg_replace('#^[/]?(.*)$#', '\\1', $for)), array('initial','update','upgrade','signin','signoff','status.json'))){
           $l = explode('|', HADES_MODULES);
@@ -661,8 +804,8 @@ class static_mirror {
 
         self::hermes('initial');
 
-        if(!is_dir($path)){ mkdir($path); chmod($path, 00755); }
-        if(!is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
+        if(strlen($path)>1 && !is_dir($path)){ mkdir($path); chmod($path, 00755); }
+        if(strlen($patch)>1 && !is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
         if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
         if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', \XLtrace\Hades\json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
         return TRUE;
@@ -1015,7 +1158,7 @@ class static_mirror {
         self::encapsule($html, TRUE);
         return FALSE;
     }
-    public static function toc($as_html=TRUE){
+    function toc($as_html=TRUE){
         $list = array(
           'update'=>'Update cache',
           'status.json' => 'status.json',
@@ -1235,150 +1378,9 @@ class static_mirror {
         .'<span class="fw"><input type="submit" name="action" value="Send"/> <input type="button" name="action" value="Preview"/></span>'
         .'</form>', $set);
     }
-    public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
-        if(defined('STATIC_MIRROR_ALLOW_MAIL') && STATIC_MIRROR_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
-        $count = 0;
-        /*fix*/ if(is_bool($set)){ $set = array('preview'=>$set); }
-        /*fix*/ if(is_array($title)){ $set = array_merge($set, $title); $title = (isset($set['title']) ? $set['title'] : NULL); $message = (isset($set['message']) ? $set['message'] : $message); if($to === FALSE && isset($set['to'])){ $to = $set['to']; } }
-        $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
-        //if(\XLtrace\Hades\authenticated() !== TRUE){ return FALSE/*\XLtrace\Hades\signin()*/; }
-        if(is_string($message) && preg_match('#[\.](html|md)$#', $message, $ext)){
-          $message = (file_exists($message) ? file_get_contents($message) : NULL); //grab $message
-          switch($ext[1]){
-            case 'md':
-              $message = ($message); //parse markdown
-              break;
-            //case 'html': default: //do nothing to change input
-          }
-        }
-        /* json / single or non addressy fix */ if(!is_array($to)){ if(is_string($to)){ $to = (preg_match('#^\s*[\[\{]#', $to) && preg_match('#[\]\}]\s*$#', $to) ? json_decode($to, TRUE) : self::emailaddress_str2array($to)); } else{ $to = array(); } }
-        /*fix*/ if(isset($set['to'])){ $to = array_merge($to, $set['to']); }
-        foreach($to as $i=>$t){
-          if(is_string($t)){ $t = array('email'=>trim($t)); }
-          if(class_exists('\PHPMailer\PHPMailer\PHPMailer') && isset($t['email']) && \XLtrace\Hades\is_emailaddress($t['email'])){
-            /*debug*/ print "Send email to: ".$t['email']."\n";
-
-            $mail = new \PHPMailer\PHPMailer\PHPMailer(true);
-
-            foreach(array('CharSet','Ical','Timeout') as $act){
-              if(isset($set[strtolower($act)])){ $mail->$act = $set[strtolower($act)]; }
-            }
-
-            if((isset($set['smtp']) && $set['smtp'] === TRUE) || isset($set['smtp-auth'])){
-              if(isset($set['smtp-debug'])){
-                /*fix*/ if(is_string($set['smtp-debug'])){ $set['smtp-debug'] = strtoupper($set['smtp-debug']); }
-                switch($set['smtp-debug']){
-                  case FALSE: case 'OFF': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_OFF; break;
-                  case NULL: case 'CLIENT': $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_CLIENT; break;
-                  case TRUE: case 'SERVER': default: $mail->SMTPDebug = \PHPMailer\PHPMailer\SMTP::DEBUG_SERVER;
-                }
-              }
-              $mail->isSMTP();
-              if(isset($set['smtp-auth'])){
-                $mail->SMTPAuth = (is_bool($set['smtp-auth']) && $set['smtp-auth'] === TRUE ? TRUE : FALSE);
-                $mail->SMTPSecure = (isset($set['tls']) ? \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS : \PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS);
-                if(isset($set['smtp-options'])){ $mail->SMTPOptions = $set['smtp-options']; }
-              }
-              $mail->Host = $set['host'];
-              if(isset($set['username'])){ $mail->Username   = $set['username']; }
-              if(isset($set['password'])){ $mail->Password   = $set['password']; }
-              $mail->Port = (isset($set['port']) && is_int($set['port']) ? $set['port'] : (FALSE ? 25 : (isset($set['tls']) ? 587 : 465))); //25, 456, 587
-            }
-            elseif(isset($set['sendmail']) && $set['sendmail'] === TRUE){
-              $mail->isSendmail();
-            }
-
-            if(FALSE){ //smime signed mail
-              $mail->sign(
-                $set['crt'],
-                $set['key'],
-                (FALSE ? $set['spkp'] : NULL),
-                $set['pem']
-              );
-            }
-            //DKIM: https://github.com/PHPMailer/PHPMailer/blob/master/examples/DKIM_sign.phps
-
-            //Recipients
-            foreach(array('from'=>'setFrom','to'=>'addAddress','reply-to'=>'addReplyTo','cc'=>'addCC','bcc'=>'addBCC') as $v=>$m){
-              if(isset($set[$v])){
-                if(is_string($set[$v]) || (is_array($set[$v]) && isset($set[$v]['email'])) ){ $set[$v] = array($set[$v]); }
-                if(is_array($set[$v])){foreach($set[$v] as $j=>$w){
-                  if(is_array($w) && isset($w['email']) && \XLtrace\Hades\is_emailaddress($w['email']) && isset($w['name'])){ $mail->$m($w['email'], $w['name']); }
-                  elseif(is_string($w) && \XLtrace\Hades\is_emailaddress($w)){ $mail->$m($w); }
-                }}
-              }
-            }
-            if(isset($set['confirmreadingto']) && \XLtrace\Hades\is_emailaddress($set['confirmreadingto'])){
-              $mail->ConfirmReadingTo = $set['confirmreadingto'];
-              $mail->AddCustomHeader( "X-Confirm-Reading-To: ".$set['confirmreadingto'] );
-              $mail->AddCustomHeader( "Return-Receipt-To: ".$set['confirmreadingto'] );
-              $mail->AddCustomHeader( "Disposition-Notification-To: ".$set['confirmreadingto'] );
-            }
-            if(isset($t['name'])){ $mail->addAddress($t['email'], $t['name']); } else { $mail->addAddress($t['email']); }
-
-            // Attachments
-            if(isset($set['attachment'])){
-              if(!is_array($set['attachment'])){ $set['attachment'] = array($set['attachment']); }
-              foreach($set['attachment'] as $j=>$a){
-                if(is_array($a) && isset($a['src']) && file_exists($a['src']) && isset($a['name'])){ $mail->addAttachment($a['src'], $a['name']); }
-                elseif(is_string($a) && file_exists($a)){ $mail->addAttachment($a); }
-              }
-            }
-
-            // Content
-            $mail->isHTML(true);
-            $mail->Subject = $title;
-            //$mail->msgHTML(file_get_contents('contents.html'), __DIR__);
-            $mail->Body    = self::encapsule($message, FALSE, (isset($set['template']) ? $set['template']  : 'email.html'));
-            $mail->AltBody = trim($message); //todo: html clean
-
-            if(!isset($_GET['debug'])){ $mail->send(); } else { print_r($mail); }
-
-            //save on imap like gmail: https://github.com/PHPMailer/PHPMailer/blob/master/examples/gmail.phps
-
-            $count++;
-          }
-        }
-        return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? self::encapsule($message, FALSE) : $count);
-    }
+    /*deprecated*/ public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\send_mail($title, $message, $to, $set); }
     /*deprecated*/ public static function is_emailaddress($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\is_emailaddress($email); }
-    public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
-        if(!file_exists(\XLtrace\Hades\hermes_file())){ return FALSE; }
-        if(!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec')){ $mode = NULL; }
-        # $path + $url + $key
-        $set = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
-        $url = (isset($set['url']) ? $set['url'] : \XLtrace\Hades\hermes_default_remote());
-        $key = (isset($set['key']) ? $set['key'] : FALSE);
-        $message = array(
-            "when"=>date('c'),
-            "stamp"=>date('U'),
-            "identity"=>substr(md5((isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')), 0, 24),
-            "HTTP_HOST"=>\XLtrace\Hades\current_URI(),
-            "load"=>$path,
-            "HTTP_USER_AGENT"=>(isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : 'cli'),
-            "REMOTE_ADDR"=>(isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : 'localhost')
-        );
-        if(isset($_SERVER['HTTP_ACCEPT_LANGUAGE'])){ $message["HTTP_ACCEPT_LANGUAGE"] = $_SERVER['HTTP_ACCEPT_LANGUAGE']; }
-        //$message['item'] = $message['load'];
-        if($addpostget !== FALSE){
-          $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
-          if(isset($G) && is_array($G) && count($G) > 0){ $message['_GET'] = $G; }
-          if(isset($P) && is_array($P) && count($P) > 0){ $message['_POST'] = $P; }
-        }
-        $message = json_encode($message);
-        if($key !== FALSE){ $message = \XLtrace\Hades\encrypt($message, $key); }
-        //*debug*/ print '<!-- HERMES: '.$message.' -->';
-        /*fix if curl not exists*/ if($mode === NULL){ return $message; }
-        $fm = 'json='.$message; //&var=
-        $ch = curl_init( $url );
-        curl_setopt( $ch, CURLOPT_POST, 1);
-        curl_setopt( $ch, CURLOPT_POSTFIELDS, $fm);
-        curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
-        curl_setopt( $ch, CURLOPT_HEADER, 0);
-        curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
-        $response = curl_exec( $ch );
-        return ($mode === FALSE ? $response : $message);
-    }
+    /*deprecated*/ public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){ deprecated(__METHOD__); return \XLtrace\Hades\hermes($path, $mode, $addpostget); }
     /*deprecated*/ public static function encrypt($str, $key=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\encrypt($str, $key); }
     /*deprecated*/ public static function decrypt($ciphertext, $key=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\decrypt($ciphertext, $key); }
     /*deprecated*/ public static function json_encode($value, $options=0, $depth=512){ deprecated(__METHOD__); return \XLtrace\Hades\json_encode($value, $options, $depth); }
@@ -1386,17 +1388,28 @@ class static_mirror {
     /*deprecated*/ public static function file_get_json($file, $as_array=TRUE, $def=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\file_get_json($file, $as_array, $def); }
     /*deprecated*/ public static function file_put_json($file, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\file_put_json($file, $set); }
 }
-class module /*extends static_mirror*/ {
+/**********************************************************************/
+/**********************************************************************/
+class static_mirror extends oldjunk {
+
+}
+/**********************************************************************/
+/**********************************************************************/
+class module {
   var $for = NULL;
+  var $set = array();
   var $mode = "text/markdown";
   var $mapper = FALSE; // __FILE__ .json
   var $root = FALSE;
   function __construct($settings=array()){
-    foreach(array('mode','mapper','root','for') as $el){
-      if(isset($settings[$el])){ $this->$el = $settings[$el]; }
+    foreach(array('mode','mapper','root','for','path','patch') as $el){
+      if(isset($settings[$el]) && isset($this->$el)){ $this->$el = $settings[$el]; }
     }
     if($this->root == FALSE && $this->mapper !== FALSE){ $this->root = dirname($this->mapper); }
     /*fix*/ if($this->root !== FALSE && substr($this->root, -1) != '/'){ $this->root .= '/'; }
+  }
+  function __toString(){
+    return $this->get($this->for, $this->set);
   }
   function get($for=NULL, &$set=array()){
     $str = FALSE;
@@ -1406,10 +1419,11 @@ class module /*extends static_mirror*/ {
         $db = $this->mapper_set(NULL);
         if(isset($db[strtolower($for)])){ $str = $this->mapper(strtolower($for)); }
     }
+    if($str != FALSE){ $this->for = $for; $this->set =& $set; }
     if($this->mode == "text/html" && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
     return $str;
   }
-  /*public static*/ function detect($for=NULL, &$set=array()){
+  function detect($for=NULL, &$set=array()){
     if($this->mapper !== FALSE){
       $db = $this->mapper_set(NULL);
       return (in_array(strtolower($for), array('toc')) || isset($db[strtolower($for)]));
@@ -1418,7 +1432,8 @@ class module /*extends static_mirror*/ {
       $r = $this->get($for); return (in_array($r, array(TRUE, FALSE, NULL)) ? $r : TRUE);
     }
   }
-  /*public static*/ function toc($as_html=FALSE){
+  function get_mode(){ return $this->mode; }
+  function toc($as_html=FALSE){
     $db = $this->mapper_set(NULL);
     $toc = NULL;
     foreach($db as $i=>$item){
