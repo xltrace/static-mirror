@@ -36,7 +36,15 @@ function get($for=NULL, &$set=array(), $module=FALSE){
   if($sm->get_mode() == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
   return $str;
 }
+function module_get($module=FALSE, $for=NULL, &$set=array()){ return \XLtrace\Hades\get($for, $set, $module); }
 function deprecated($item=NULL){ if(isset($_GET['debug']) && in_array($_GET['debug'], array('true','yes',TRUE))){ print ($item === NULL ? 'A method being used' : $item).' is being deprecated.'."\n"; } }
+function notfound($for=NULL){
+    $html = "Error 404: Page not found.";
+    if($for != NULL){ $html .= "\n\n".$for." is missing."; }
+    //return \XLtrace\Hades\encapsule($html, NULL);
+    //return FALSE;
+    return $html;
+}
 
 function static_mirror_file(){ return STATIC_MIRROR_BASE.'/static-mirror.json'; }
 function hermes_file(){ return STATIC_MIRROR_BASE.'/hermes.json'; }
@@ -142,7 +150,7 @@ function signin(){
   //if($s['2ndFA'] === TRUE){ return \XLtrace\Hades\requestaccess(); }
   //else{
     $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
-    return $html; //self::encapsule($html, TRUE);
+    return $html; //\XLtrace\Hades\encapsule($html, NULL);
   //}
   return FALSE;
 }
@@ -151,7 +159,7 @@ function signoff(){
   unset($_SESSION['token']);
   unset($_SESSION['m']);
   $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
-  return $html; //self::encapsule($html, TRUE);
+  return $html; //\XLtrace\Hades\encapsule($html, NULL);
   return FALSE;
 }
 function file_get_json($file, $as_array=TRUE, $def=FALSE){
@@ -484,6 +492,145 @@ function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){
   $response = curl_exec( $ch );
   return ($mode === FALSE ? $response : $message);
 }
+function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
+  if(!is_array($list) || count($list) == 0){
+    if(!file_exists(\XLtrace\Hades\slaves_file())){ return FALSE; }
+    $list = \XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array());
+  }
+  $bool = TRUE; $json = array();
+  foreach($list as $i=>$url){
+    $pu = parse_url($url);
+    if($pu !== FALSE && is_array($pu)){
+      switch(strtolower($action)){
+        case 'upgrade': case 'update':
+          $pu['path'] = $pu['path'].(substr($pu['path'], -1) == '/' ? NULL : '/').strtolower($action);
+          $buffer = file_get_contents(\XLtrace\Hades\build_url($pu));
+          break;
+        case 'status': case 'status.json':
+          $pu['path'] = $pu['path'].(substr($pu['path'], -1) == '/' ? NULL : '/').'status.json';
+          $json[$url] = \XLtrace\Hades\file_get_json(\XLtrace\Hades\build_url($pu));
+          break;
+        default:
+          $bool = FALSE;
+      }
+    }
+  }
+  return (count($json) == 0 ? $bool : $json);
+}
+function get_size($path=STATIC_MIRROR_BASE, $recursive=FALSE){
+    $size = 0;
+    $list = scandir($path);
+    foreach($list as $i=>$f){
+      if(!preg_match('#^[\.]{1,2}$#', $f)){
+        if(is_dir($path.$f)){
+          if($recursive !== FALSE){ $size += \XLtrace\Hades\get_size($path.$f.'/', $recursive); }
+        }
+        else {
+          $size += filesize($path.$f);
+        }
+      }
+    }
+    return $size;
+}
+function count_pages($path=FALSE, $ext=FALSE, $sitemap=FALSE){
+    if($path === FALSE){ $path = __DIR__.'/cache/';}
+    $c = 0; $s = array();
+    $list = scandir($path);
+    foreach($list as $i=>$f){
+      if(!preg_match('#^[\.]{1,2}$#', $f)){
+        if(!is_array($ext)){ $c++; $s[] = $f; }
+        elseif(preg_match('#[\.]('.implode('|',$ext).')$#', $f)){ $c++; $s[] = $f; }
+      }
+    }
+    return ($sitemap === FALSE ? $c : $s);
+}
+function encapsule($content=NULL, $el=FALSE, $template='empty.html'){
+  if($el === FALSE){ $el = 'content'; }
+  //encapsule when an cache/empty.html skin is available
+
+  // $content = ''.$content.'';
+  /*print instruction*/ if(is_bool($el) && $el === TRUE){ print $content; exit; } elseif($el === NULL){ print $content; }
+  return $content;
+}
+function morph($str=NULL, $set=array()){
+  if(class_exists('\JSONplus\Morpeus')){ return \JSONplus\Morpheus::parse($str, $set); }
+  elseif(class_exists('\Morpeus')){ return \Morpheus::parse($str, $set); }
+  preg_match_all('#[\{]([^\}\?\|]+)([^\}]+)?[\}]#', $str, $buffer);
+  foreach($buffer[0] as $i=>$hit){
+    $with = (isset($set[$buffer[1][$i]]) ? $set[$buffer[1][$i]] : FALSE);
+    switch(substr($buffer[2][$i], 0, 1)){
+      case '|':
+        if($with === FALSE){ $with = substr($buffer[2][$i], 1); }
+        break;
+      case '?':
+        $x = explode(':', $buffer[2][$i]);
+        $with = ($with === FALSE ? (isset($x[1]) ? $x[1] : NULL) : substr($x[0], 1));
+        break;
+      default:
+        if($with === FALSE){ $with = $hit; }
+    }
+    $str = str_replace($hit, $with, $str);
+  }
+  return $str;
+}
+function morph_template($template=NULL, $set=array(), $config=array()){
+  $extentions = array('m','md','html');
+  foreach($extentions as $ext){
+  $t = (isset($config['root']) ? $config['root'] : NULL).$template.'.'.$ext;
+  //*debug*/ print '<pre>'; print_r(array('template'=>$template,'set'=>$set,'config'=>$config,'t'=>$t,'t_exists'=>file_exists($t))); print '</pre>';
+  if(file_exists($t)){
+    $raw = file_get_contents($t);
+    $raw = \XLtrace\Hades\morph($raw, $set);
+    //*markdown fix*/ $raw = \Morpheus\Markdown_decode($raw, array_merge($set, $config)); //$morph = new \Morpheus\markdown(); $raw = $morph->decode($raw, array_merge($set, $config)); //print_r($morph);
+    //*debug*/ print_r($raw); exit;
+    return $raw;
+  }}
+  return (file_exists($this->root.'template_is_not_found.html') ? $this->morph_template('template_is_not_found', $set) : FALSE);
+}
+function apply_patch($raw=NULL){
+  if(isset($this)){
+    $path = $this->path;
+    $patch = $this->patch;
+  }
+  else {
+    global $path, $patch;
+  }
+  $list = scandir($patch);
+  foreach($list as $i=>$f){
+    //*debug*/ print $f."\n";
+    if(preg_match('#\.before$#', $f)){
+      $before = trim(file_get_contents($patch.$f));
+      $after = trim(file_get_contents($patch.substr($f, 0, -7).'.after'));
+      $raw = str_replace($before, $after, $raw);
+    }
+    elseif(preg_match('#\.preg$#', $f)){
+      $srp = file_get_contents($patch.$f);
+      $pregjson = json_decode($srp, TRUE);
+      //*debug*/ print_r($srp); print_r($pregjson);
+      foreach($pregjson as $i=>$s){
+        if(isset($s['find']) && class_exists('simple_html_dom_node')){
+          $html = str_get_html($raw);
+          $hit = $html->find($s['find']);
+          foreach($hit as $item){
+            //print_r($item->plaintext); exit;
+            //print "\t".$item->innertext."\n";
+            //$item->innertext = NULL;
+            if(isset($s['after'])){ $item->innertext = $s['after']; }
+            elseif(isset($s['src'])){ $item->innertext = (file_exists($patch.$s['src']) ? file_get_contents($patch.$s['src']) : (file_exists($path.$s['src']) ? file_get_contents($path.$s['src']) : file_get_contents($s['src']) ) );  }
+            else{ $item->remove(); }
+          }
+          $raw = (string) $html;
+        }
+        if(isset($s['before']) && isset($s['after'])){
+          //$raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw);
+          $raw = str_replace($s['before'], $s['after'], $raw);
+          /*\/ fix*/ if(preg_match('#[/]#', $s['before'])){ $raw = str_replace(str_replace('/','\\/',$s['before']), str_replace('/','\\/',$s['after']), $raw); }
+        }
+      }
+    }
+  }
+  return $raw;
+}
 function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
   if(defined('HADES_ALLOW_MAIL') && HADES_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
   $count = 0;
@@ -578,7 +725,7 @@ function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
       $mail->isHTML(true);
       $mail->Subject = $title;
       //$mail->msgHTML(file_get_contents('contents.html'), __DIR__);
-      $mail->Body    = $message; //self::encapsule($message, FALSE, (isset($set['template']) ? $set['template']  : 'email.html'));
+      $mail->Body    = $message; //\XLtrace\Hades\encapsule($message, FALSE, (isset($set['template']) ? $set['template']  : 'email.html'));
       $mail->AltBody = trim($message); //todo: html clean
 
       if(!isset($_GET['debug'])){ $mail->send(); } else { print_r($mail); }
@@ -588,7 +735,7 @@ function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
       $count++;
     }
   }
-  return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? /*self::encapsule($message, FALSE)*/$message : $count);
+  return (((is_bool($set) && $set === TRUE) || (isset($set['preview']) && $set['preview'] === TRUE)) ? /*\XLtrace\Hades\encapsule($message, FALSE)*/$message : $count);
 }
 
 /**********************************************************************/
@@ -618,7 +765,7 @@ class oldjunk extends module {
           foreach($l as $i=>$mod){
             if(class_exists($mod) && method_exists($mod, 'detect')){
               $buffer = $mod::detect($for);
-              if($buffer !== FALSE){ self::encapsule($buffer, TRUE); return TRUE; }
+              if($buffer !== FALSE){ \XLtrace\Hades\encapsule($buffer, NULL); return TRUE; }
             }
           }
         }
@@ -667,262 +814,25 @@ class oldjunk extends module {
         }
         return FALSE;
     }
-    public static function alias($path=NULL, $force=FALSE){
-        /*fix*/ if($path === NULL){ $path = $_SERVER['REQUEST_URI']; }
-        /*fix*/ if(substr($path, 0,1) == '/'){ $path = substr($path, 1); }
-
-        $preg = '#^[\?]?(http[s]?|ftp)#';
-
-        if(file_exists(\XLtrace\Hades\alias_file())){
-          $db = \XLtrace\Hades\file_get_json(\XLtrace\Hades\alias_file(), TRUE, array());
-        } else { return FALSE; }
-
-        if(isset($db[strtolower($path)])){
-          $path = (isset($db['#']) && preg_match($preg, $db['#']) ? $db['#'].(in_array(substr($db['#'], -1), array('/','=','?',':','#','~') ) ? NULL : '/'): NULL).$db[strtolower($path)];
-        }
-
-        if(preg_match($preg, $path)){ $url = substr($path, 1); }
-        elseif(isset($db['*']) && preg_match($preg, $db['*'])){ $url = substr($db['*'], 1).(in_array(substr($db['*'], -1), array('/','=','?',':','#','~') ) ? NULL : '/').$path; }
-        else{ return FALSE; }
-
-        /*fix*/ if(preg_match("#^(.*)index\.html$#", $url, $buffer)){ $url = $buffer[1]; }
-
-        if($force !== FALSE){
-          if(!isset($hermes) || $hermes !== FALSE){ self::hermes($path); }
-          /*REDIRECTING*/
-          header("HTTP/1.1 301 Moved Permanently");
-          header("Location: ".$url);
-          print '<html>You will be redirected to <a href="'.$url.'">'.$url.'</a>.</html>';
-          exit;
-        }
-        return $url;
-    }
-    public static function grab($for){
-        $allow_patch = FALSE;
-        if(isset($this)){
-            $path = $this->path;
-            $patch = $this->patch;
-        }
-        else {
-            global $path, $patch;
-        }
-        #gather
-        #$for = $_GET['for'];
-
-        $hermes = FALSE;
-
-        /*fix*/ if(preg_match('#[\?]#', $for)){ $for = substr($for, 0, strpos($for, '?')); }
-
-        if(substr($for, -1) == '/'){
-            if(in_array(basename($for), array('/',''))){
-                $alias = 'index.html';
-            } else {
-                $alias = basename(substr($for, 0, -1)).'.html';
-            }
-        } else { $alias = basename($for); }
-
-        /*
-        $log = $for."\t".$alias."\n";
-        $handle = fopen(STATIC_MIRROR_BASE.'/gather.log', 'a');
-        fwrite($handle, $log);
-        fclose($handle);
-        // print $log; exit;
-        //*/
-
-        // https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types/Common_types
-        switch(preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)){
-            case 'css': header('content-type: text/css'); break;
-            case 'eot': header('content-type: application/vnd.ms-fontobject'); break;
-            case 'gif': header('content-type: image/gif'); break;
-            case 'htm': case 'html': header('content-type: text/html'); $hermes = TRUE; $allow_patch = TRUE; break;
-            case 'ico': header('content-type: image/vnd.microsoft.icon'); break;
-            case 'jpg': case 'jpeg': header('content-type: image/jpeg'); break;
-            case 'js': header('content-type: text/javascript'); break;
-            case 'json': header('content-type: application/json'); break;
-            case 'otf': header('content-type: font/otf'); break;
-            case 'png': header('content-type: image/png'); break;
-            case 'pdf': header('content-type: application/pdf'); $hermes = TRUE; break;
-            case 'php': header("HTTP/1.0 404 Not Found"); self::hermes($for); return FALSE; break;
-            case 'ppt': header('content-type: application/vnd.ms-powerpoint'); $hermes = TRUE; break;
-            case 'pptx': header('content-type: application/vnd.openxmlformats-officedocument.presentationml.presentation'); $hermes = TRUE; break;
-            case 'svg': header('content-type: image/svg+xml'); break;
-            case 'ttf': header('content-type: font/ttf'); break;
-            case 'txt': header('content-type: text/plain'); $hermes = TRUE; break;
-            case 'woff': header('content-type: font/woff'); break;
-            case 'woff2': header('content-type: font/woff2'); break;
-            case 'xml': header('content-type: application/xml'); $hermes = TRUE; break;
-            default: header("HTTP/1.0 404 Not Found"); self::hermes($for); self::notfound($for); return FALSE;
-        }
-
-        if(!isset($hermes) || $hermes !== FALSE){ self::hermes($for); }
-
-        $G = $_GET; $P = $_POST; /*fix*/ if(isset($G['for'])){ unset($G['for']); } if(isset($P['raw']) && strlen($P['raw']) == 0){ unset($P['raw']); }
-        if((function_exists('curl_init') && function_exists('curl_setopt') && function_exists('curl_exec')) && ((isset($G) && is_array($G) && count($G) > 0) || (isset($P) && is_array($P) && count($P) > 0))){
-            //grab through CURL an uncached version, and do not cache
-            $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
-            $src = reset($conf);
-            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
-            $url = parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for;
-
-            $url = $url.'?'.\XLtrace\Hades\array_urlencode($G);
-            $ch = curl_init( $url );
-            curl_setopt( $ch, CURLOPT_POST, 1);
-            curl_setopt( $ch, CURLOPT_POSTFIELDS, \XLtrace\Hades\array_urlencode($P));
-            curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, 1);
-            curl_setopt( $ch, CURLOPT_HEADER, 0);
-            curl_setopt( $ch, CURLOPT_RETURNTRANSFER, 1);
-            $raw = curl_exec( $ch );
-
-            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
-            if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
-            print \XLtrace\Hades\url_patch($raw, $allow_patch);
-        }
-        elseif(file_exists($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias))){
-            print \XLtrace\Hades\url_patch(file_get_contents($path.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias)), $allow_patch);
-        }
-        elseif(file_exists($path.basename($for))){
-            print \XLtrace\Hades\url_patch(file_get_contents($path.$alias), $allow_patch);
-        }
-        else {
-            $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
-            $src = reset($conf);
-            if(strlen($src) < 6){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
-            $raw = file_get_contents(parse_url($src, PHP_URL_SCHEME).'://'.parse_url($src, PHP_URL_HOST).'/'.$for);
-            if(strlen($raw) == 0){ header("HTTP/1.0 404 Not Found"); self::notfound($for); return FALSE; }
-            if($allow_patch !== FALSE){ $raw = self::apply_patch($raw); }
-            file_put_contents(__DIR__.'/cache/'.md5($for).'.'.preg_replace("#^(.*)[\.]([a-z0-9]+)$#", '\\2', $alias), $raw);
-            //file_put_contents(__DIR__.'/cache/'.$alias, $raw);
-            print \XLtrace\Hades\url_patch($raw, $allow_patch);
-        }
-        return TRUE;
-    }
-    /*deprecated*/ public static function url_patch($str, $find=NULL, $host=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\url_patch($str, $find, $host); }
-    public static function initial(){
-        if(isset($this)){
-            $path = $this->path;
-            $patch = $this->patch;
-        }
-        else {
-            global $path, $patch;
-        }
-
-        self::hermes('initial');
-
-        if(strlen($path)>1 && !is_dir($path)){ mkdir($path); chmod($path, 00755); }
-        if(strlen($patch)>1 && !is_dir($patch)){ mkdir($patch); chmod($patch, 00755); }
-        if(!file_exists(__DIR__.'/.htaccess')){ file_put_contents(__DIR__.'/.htaccess', "RewriteEngine On\n\nRewriteCond %{HTTPS} !=on\nRewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]\n\nRewriteRule \.(php)\$ - [L]\n\nRewriteRule ^\$ /static-mirror.php?for=index.html [QSA,L]\nRewriteRule ^(.*) /static-mirror.php?for=\$1 [QSA,L]"); }
-        if(!file_exists(__DIR__.'/static-mirror.json')){ file_put_contents(__DIR__.'/static-mirror.json', \XLtrace\Hades\json_encode( (isset($_GET['src']) ? array($_GET['src']) : array()) )); }
-        return TRUE;
-    }
-    public static function update($file='index.html'){
-        if(!preg_match('#^[a-z0-9_\-]+\.html$#', $file)){ $file = 'index.html'; }
-        if(isset($this)){
-            $path = $this->path;
-            $patch = $this->patch;
-        }
-        else {
-            global $path, $patch;
-        }
-
-        self::hermes('update');
-        if(isset($_GET['all'])){ self::run_slaves('update'); }
-
-        if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
-
-        $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
-        if(isset($conf[$file])){ $src = $conf[$file]; }
-        else{ $src = reset($conf); $file = 'index.html'; }
-
-        if(!is_array($conf) || strlen($src) < 1){ echo "No MIRROR configured."; return FALSE; }
-
-        if($file == 'index.html'){
-        $list = scandir($path);
-        foreach($list as $i=>$f){
-            if(!preg_match('#^[\.]{1,2}$#', $f)){ unlink($path.$f); }
-        }}
-
-        $raw = file_get_contents($src);
-        $raw = self::apply_patch($raw);
-
-        file_put_contents($path.$file, $raw);
-        print \XLtrace\Hades\url_patch($raw);
-        return $raw;
-    }
-    public static function apply_patch($raw=NULL){
-        if(isset($this)){
-            $path = $this->path;
-            $patch = $this->patch;
-        }
-        else {
-            global $path, $patch;
-        }
-        $list = scandir($patch);
-        foreach($list as $i=>$f){
-            //*debug*/ print $f."\n";
-            if(preg_match('#\.before$#', $f)){
-                $before = trim(file_get_contents($patch.$f));
-                $after = trim(file_get_contents($patch.substr($f, 0, -7).'.after'));
-                $raw = str_replace($before, $after, $raw);
-            }
-            elseif(preg_match('#\.preg$#', $f)){
-                $srp = file_get_contents($patch.$f);
-                $pregjson = json_decode($srp, TRUE);
-                //*debug*/ print_r($srp); print_r($pregjson);
-                foreach($pregjson as $i=>$s){
-                    if(isset($s['find']) && class_exists('simple_html_dom_node')){
-                        $html = str_get_html($raw);
-                        $hit = $html->find($s['find']);
-                        foreach($hit as $item){
-                            //print_r($item->plaintext); exit;
-                            //print "\t".$item->innertext."\n";
-                            //$item->innertext = NULL;
-                            if(isset($s['after'])){ $item->innertext = $s['after']; }
-                            elseif(isset($s['src'])){ $item->innertext = (file_exists($patch.$s['src']) ? file_get_contents($patch.$s['src']) : (file_exists($path.$s['src']) ? file_get_contents($path.$s['src']) : file_get_contents($s['src']) ) );  }
-                            else{ $item->remove(); }
-                        }
-                        $raw = (string) $html;
-                    }
-                    if(isset($s['before']) && isset($s['after'])){
-                        //$raw = preg_replace('#'.$s['before'].'#'.(isset($s['case']) ? 'i' : NULL), $s['after'], $raw);
-                        $raw = str_replace($s['before'], $s['after'], $raw);
-                        /*\/ fix*/ if(preg_match('#[/]#', $s['before'])){ $raw = str_replace(str_replace('/','\\/',$s['before']), str_replace('/','\\/',$s['after']), $raw); }
-                    }
-                }
-            }
-        }
-        return $raw;
-    }
-    public static function upgrade(){
-        $raw = file_get_contents(\XLtrace\Hades\raw_git_path()."static-mirror.php");
-        self::hermes('upgrade');
-        if(isset($_GET['all'])){ self::run_slaves('upgrade'); }
-        if(strlen($raw) > 10 && preg_match('#^[\<][\?]php\s#', $raw) && is_writable(__FILE__)){
-            file_put_contents(__FILE__, $raw);
-            foreach(array('.gitignore','README.md','composer.json','simple_html_dom.php') as $i=>$f){
-                if(is_writable(__DIR__.'/'.$f)){ file_put_contents(__DIR__.'/'.$f, file_get_contents(\XLtrace\Hades\raw_git_path().$f)); }
-            }
-            $html = "Upgrade complete";
-            self::encapsule($html, TRUE);
-            return TRUE;
-        }
-        else {
-            $html = "Upgrade failed, try again!";
-            self::encapsule($html, TRUE);
-            return FALSE;
-        }
-    }
-    public static function backup(){
-        self::hermes('backup');
-        if(isset($_GET['all'])){ self::run_slaves('backup'); }
+    /*deprecated*/ public static function alias($path=NULL, $force=FALSE){ deprecated(__METHOD__);
         return FALSE;
     }
+    /*deprecated*/ public static function grab($for){ deprecated(__METHOD__);
+        return FALSE;
+    }
+    /*deprecated*/ public static function url_patch($str, $find=NULL, $host=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\url_patch($str, $find, $host); }
+    /*deprecated*/ public static function initial(){ deprecated(__METHOD__); return FALSE; }
+    /*deprecated*/ public static function update($file='index.html'){ deprecated(__METHOD__); return FALSE; }
+    /*deprecated*/ public static function apply_patch($raw=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\apply_patch($raw); }
+    /*deprecated*/ public static function upgrade(){ deprecated(__METHOD__); return FALSE; }
+    /*deprecated*/ public static function backup(){ deprecated(__METHOD__); return FALSE; }
     /*deprecated*/ public static function authenticated($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\authenticated($email); }
     /*deprecated*/ public static function signin(){ deprecated(__METHOD__);
         $s = self::status_json(FALSE);
         if($s['2ndFA'] === TRUE){ return self::requestaccess(); }
         else{
           $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
-          self::encapsule($html, TRUE);
+          \XLtrace\Hades\encapsule($html, NULL);
           return FALSE;
         }
     }
@@ -941,7 +851,7 @@ class oldjunk extends module {
       /*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
       $s = self::status_json(FALSE);
       if(FALSE && $s['2ndFA'] === FALSE){
-        self::encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', TRUE);
+        \XLtrace\Hades\encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', NULL);
         return FALSE;
       }
       $mode = NULL;
@@ -980,57 +890,28 @@ class oldjunk extends module {
           $html = '(insert emailaddress form)';
           $html = '<form method="POST"><table><tr><td>Email address:</td><td><input name="emailaddress" type="email"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Request Access" /></td></tr></table></form>';
       }
-      self::encapsule($html, TRUE);
+      \XLtrace\Hades\encapsule($html, NULL);
       return FALSE;
     }
     public static function requestaccess_email_html($set=array()){
       $html = 'You have requested access to <a href="{URI|localhost}">{URI|localhost}</a>. Your access is being granted by this link: <a href="{sURI|localhost}">{sURI|}</a>';
-      return self::m($html, $set);
+      return \XLtrace\Hades\morph($html, $set);
     }
-    public static function notfound($for=NULL){
-        $html = "Error 404: Page not found.";
-        if($for != NULL){ $html .= "\n\n".$for." is missing."; }
-        self::encapsule($html, TRUE);
-        return FALSE;
-    }
-    public static function get_size($path=STATIC_MIRROR_BASE, $recursive=FALSE){
-        $size = 0;
-        $list = scandir($path);
-        foreach($list as $i=>$f){
-          if(!preg_match('#^[\.]{1,2}$#', $f)){
-            if(is_dir($path.$f)){
-              if($recursive !== FALSE){ $size += self::get_size($path.$f.'/', $recursive); }
-            }
-            else {
-              $size += filesize($path.$f);
-            }
-          }
-        }
-        return $size;
-    }
-    public static function count_pages($path=FALSE, $ext=FALSE, $sitemap=FALSE){
-        if($path === FALSE){ $path = __DIR__.'/cache/';}
-        $c = 0; $s = array();
-        $list = scandir($path);
-        foreach($list as $i=>$f){
-          if(!preg_match('#^[\.]{1,2}$#', $f)){
-            if(!is_array($ext)){ $c++; $s[] = $f; }
-            elseif(preg_match('#[\.]('.implode('|',$ext).')$#', $f)){ $c++; $s[] = $f; }
-          }
-        }
-        return ($sitemap === FALSE ? $c : $s);
-    }
-    public static function status(){
+    /*deprecated*/ public static function notfound($for=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\notfound($for); }
+    /*deprecated*/ public static function get_size($path=STATIC_MIRROR_BASE, $recursive=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\get_size($path, $recursive); }
+    /*deprecated*/ public static function count_pages($path=FALSE, $ext=FALSE, $sitemap=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\count_pages($path, $ext, $sitemap); }
+    /*deprecated*/ public static function status(){ deprecated(__METHOD__);
         $s = self::status_json(FALSE);
+        if(!is_array($s)){ $s = array(); }
         if(isset($s['system-fingerprint'])){ $html = self::status_html($s, TRUE); }
         else{
           $html = NULL; $header = TRUE;
           foreach($s as $key=>$set){ $html .= self::status_html($set, $header); $header = FALSE; }
         }
-        self::encapsule($html, TRUE);
+        \XLtrace\Hades\encapsule($html, NULL);
         return FALSE;
     }
-    public static function status_html($set=array(), $with_style=FALSE){
+    /*deprecated*/ public static function status_html($set=array(), $with_style=FALSE){ deprecated(__METHOD__);
         if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>a { text-decoration: none; color: #555; } a:hover { text-decoration: underline; } a:hover i { opacity: 0.8; } .bigicon { font-size: 16pt; margin: 4px 2px; } .green { color: green; } .light-gray { color: #CCC; } .black { color: black; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
 
         $icstr = NULL;
@@ -1046,108 +927,11 @@ class oldjunk extends module {
 
         $str .= '<p><i class="bigicon fa fa-swatchbook black" title="{system-size} {system-fingerprint|} {system-mod|}"></i> <a href="{URI|#}" style="display: inline-block; min-width: 240px;">{URI|localhost}</a> '.$icstr.' <small style="float: right;" class="light-gray">{SERVER_SOFTWARE|} {SERVER_PROTOCOL|}</small></p>';
 
-        return self::m($str, $set);
+        return \XLtrace\Hades\morph($str, $set);
     }
-    public static function status_json($print=TRUE){
-        $json = FALSE;
-        if(isset($_GET['all'])){ $json = self::run_slaves('status.json'); }
-        $stat = array('cache-mod-upoch'=>@filemtime(__DIR__.'/cache/index.html'),'system-mod-upoch'=>filemtime(__DIR__.'/static-mirror.php'));
-        $stat['cache-mod'] = date('c', $stat['cache-mod-upoch']);
-        $stat['system-mod'] = date('c', $stat['system-mod-upoch']);
-        $stat['cache-size'] = self::get_size(__DIR__.'/cache/', TRUE);
-        $stat['cache'] = ($stat['cache-mod-upoch'] == FALSE ? FALSE : TRUE);
-        $stat['patch-size'] = self::get_size(__DIR__.'/patch/', TRUE);
-        $stat['size'] = self::get_size(__DIR__.'/', TRUE);
-        $stat['system-size'] = filesize(__DIR__.'/static-mirror.php');
-        $stat['system-fingerprint'] = md5_file(__DIR__.'/static-mirror.php');
-        $stat['htaccess'] = file_exists(__DIR__.'/.htaccess');
-        $stat['htaccess-fingerprint'] = md5_file(__DIR__.'/.htaccess');
-        $stat['curl'] = (!function_exists('curl_init') || !function_exists('curl_setopt') || !function_exists('curl_exec') ? FALSE : TRUE);
-        $stat['hermes'] = (file_exists(\XLtrace\Hades\hermes_file()) && $stat['curl']);
-        if($stat['hermes'] === TRUE){
-          $hermes = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
-          $stat['hermes-remote'] = preg_replace('#^[\?]#', '', $hermes['url']);
-        }
-        $stat['configured'] = file_exists(\XLtrace\Hades\static_mirror_file());
-        $stat['alias'] = file_exists(\XLtrace\Hades\alias_file());
-        if($stat['alias'] === TRUE){
-          $alias = \XLtrace\Hades\file_get_json(\XLtrace\Hades\alias_file(), TRUE, array());
-          if(isset($alias['#'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['#']); }
-          if(isset($alias['*'])){ $stat['alias-domain'] = preg_replace('#^[\?]#', '', $alias['*']); }
-          $stat['alias-count'] = count($alias);
-          $stat['alias-mod-upoch'] = @filemtime(\XLtrace\Hades\alias_file());
-          $stat['alias-mod'] = date('c', $stat['alias-mod-upoch']);
-          $stat['alias-fingerprint'] = md5_file(\XLtrace\Hades\alias_file());
-        }
-        $stat['mirror'] = count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array()));
-        $stat['cache-count'] = (count(scandir(__DIR__.'/cache/')) - 2);
-        $stat['pages'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'));
-        $stat['sitemap'] = self::count_pages(__DIR__.'/cache/', array('html','htm','txt'), TRUE);
-        $stat['encapsule'] = (self::encapsule(NULL, FALSE) !== NULL);
-        $stat['encapsule-size'] = strlen(self::encapsule(NULL, FALSE));
-        $stat['addressbook'] = (file_exists(\XLtrace\Hades\addressbook_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\addressbook_file(), TRUE, array())) : FALSE);
-        $stat['whitelist'] = (file_exists(\XLtrace\Hades\whitelist_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\whitelist_file(), TRUE, array())) : FALSE);
-        $stat['force-https'] = (file_exists(__DIR__.'/.htaccess') ? (preg_match('#RewriteCond \%\{HTTPS\} \!\=on#', file_get_contents(__DIR__.'/.htaccess')) > 0 ? TRUE : FALSE) : FALSE);
-        $stat['hades'] = (defined('HADES_MODULES') && TRUE); //future feature: have the hades system integrated into the non-static parts of this mirror, with use of the encapsule skin
-        $stat['crontab'] = FALSE; //future feature: have crontab-frequency enabled to run update/upgrade/backup
-        $stat['wiki'] = ($stat['hades'] && class_exists('\XLtrace\hades\module\wiki')); //future feature: HADES module WIKI (depends on JSONplus/markdown)
-        $stat['slaves'] = (file_exists(\XLtrace\Hades\slaves_file()) ? count(\XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array())) : 0);
-        $stat['2ndFA'] = $stat['mailbox'] = FALSE; /*placeholder*/
-        $stat['cockpit'] = FALSE; //future feature: be able to send bulk-email to mailinglist.json based upon encapsule with custom content (requires PHPMailer)
-        $stat['registery'] = FALSE; //future feature: allow visitors to leave their email-emailaddress in mailinglist.json
-        $stat['active-mirror'] = FALSE; //future feature: enables active mirroring, for example when form-data is being committed. Form-data will be forwarded.
-        $stat['backup'] = FALSE; //future feature: allow to backup the settings with the patch into an zip-file
-        ksort($stat);
-        $stat['URI'] = \XLtrace\Hades\current_URI();
-        $stat['composer'] = (file_exists(__DIR__.'/composer.json') && file_exists(__DIR__.'/vendor/autoload.php')); //future feature: upgrade components by composer
-        $stat['composer-phar'] = (file_exists(__DIR__.'/composer.phar'));
-        $stat['JSONplus'] = (class_exists('JSONplus'));
-        if($stat['JSONplus'] === TRUE){
-          $stat['markdown'] = class_exists('\JSONplus\markdown');
-          $stat['qtranslate'] = class_exists('\JSONplus\qTranslate');
-          $stat['morpheus'] = class_exists('\JSONplus\morpheus');
-        }
-        $stat['simple_html_dom'] = (file_exists(__DIR__.'/simple_html_dom.php') || class_exists('simple_html_dom_node'));
-        $stat['PHPMailer'] = (class_exists('\PHPMailer\PHPMailer\PHPMailer') && STATIC_MIRROR_ALLOW_MAIL !== FALSE);
-        $stat['mailbox'] = ($stat['PHPMailer'] && file_exists(\XLtrace\Hades\mailbox_file()));
-        $stat['2ndFA'] = ($stat['PHPMailer'] && $stat['mailbox'] && $stat['whitelist'] !== FALSE);
-        /*debug*/ if(isset($_GET['system']) && $_GET['system'] == 'true'){ $stat = array_merge($stat, $_SERVER); }
-        foreach(explode('|', 'SERVER_SOFTWARE|SERVER_PROTOCOL') as $i=>$s){ if(isset($_SERVER[$s])){ $stat[$s] = $_SERVER[$s]; } } #|HTTP_HOST
-        if($json !== FALSE){
-          $json[\XLtrace\Hades\current_URI()] = $stat;
-        }
-        else{
-          $json = $stat;
-        }
-        if($print === TRUE){
-          print \XLtrace\Hades\json_encode($json); exit;
-          print FALSE;
-        }
-        else { return $json; }
-    }
+    /*deprecated*/ public static function status_json($print=TRUE){ deprecated(__METHOD__); \XLtrace\Hades\module_get('status', 'status.json', $print); }
     /*deprecated*/ public static function current_URI($el=NULL, $pl=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\current_URI($el, $pl, $set); }
-    public static function configure(){
-        if(!file_exists(\XLtrace\Hades\hermes_file())){
-            if(isset($_POST['token'])){
-              $data = array('key'=>$_POST['token']);
-              if(isset($_POST['url']) && (parse_url($_POST['url']) !== FALSE)){ $data['url'] = $_POST['url']; }
-              file_put_contents(\XLtrace\Hades\hermes_file(), str_replace('\/', '/', \XLtrace\Hades\json_encode($data)));
-              self::initial();
-              return self::configure();
-            }
-            $html = '<form method="POST"><table><tr><td>Hermes remote:</td><td><input name="url" type="url" placeholder="'.\XLtrace\Hades\hermes_default_remote().'" value="'.\XLtrace\Hades\hermes_default_remote().'"/></td></tr><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Configure" /></td></tr></table></form>';
-            self::encapsule($html, TRUE);
-            return FALSE;
-        }
-        $success = \XLtrace\Hades\authenticated(); // catch authenticated form data, so save token as cookie
-        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
-        $html = "Configure Static-Mirror";
-        //edit static-mirror.json = { page: src, page: src } | where page="index.html"
-        //edit patch (before/after)
-        //edit patch (preg/html-dom)
-        self::encapsule($html, TRUE);
-        return FALSE;
-    }
+    /*deprecated*/ public static function configure(){ deprecated(__METHOD__); return FALSE; }
     public static function management(){
         $success = \XLtrace\Hades\authenticated();
         if($success !== TRUE){ return \XLtrace\Hades\signin(); }
@@ -1159,7 +943,7 @@ class oldjunk extends module {
         foreach(array('toc','duplicate','decrypt_module') as $i=>$el){
           print self::$el();
         }
-        self::encapsule($html, TRUE);
+        \XLtrace\Hades\encapsule($html, NULL);
         return FALSE;
     }
     function toc($as_html=TRUE){
@@ -1184,53 +968,7 @@ class oldjunk extends module {
         }
         return ($as_html === TRUE ? $html : $list);
     }
-    public static function duplicate(){
-        $error = array();
-        $success = \XLtrace\Hades\authenticated();
-        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
-        $html = "Duplication Module";
-        //edit slaves.json = [ url, url ]
-        if(isset($_POST['path'])){ //duplicate static-mirror.php to $path
-          $up = (defined('STATIC_MIRROR_DIRECTORY_UP') && is_int(STATIC_MIRROR_DIRECTORY_UP) ? STATIC_MIRROR_DIRECTORY_UP : 0);
-          $chroot = ($up >= 1 ? dirname(__DIR__, $up) : __DIR__);
-          /*fix*/ if(substr($chroot, -1) == '/'){ $chroot = substr($chroot, 0, -1); }
-          $path = $_POST['path'];
-          /*fix*/ if(substr($path, 0, 1) !== '/'){ $path = '/'.$path; }
-          if(preg_match('#[\.]{2}#', $path)){ $error[] = $path.' could possibly go outside the chroot and is deemed invalid.'; }
-          else{
-            $map = $chroot.$path.(substr($path, -1) != '/' ? '/' : NULL);
-            if(file_exists($map) && is_dir($map)){
-              @file_put_contents($map.basename(__FILE__), file_get_contents(__FILE__));
-              if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
-                @file_put_contents($map.basename(\XLtrace\Hades\hermes_file()), file_get_contents(\XLtrace\Hades\hermes_file()));
-              }
-            }
-            else{ $error[] = $map.' does not exist.';}
-          }
-        }
-        if(isset($_POST['slave'])){ //add slave
-            $ns = $_POST['slave'];
-            if(parse_url($ns) !== FALSE && strlen($ns) > 5){
-              if(isset($_POST['activate']) && $_POST['activate'] == 'true'){
-                file_get_contents($ns.'static-mirror.php?for=initial');
-              }
-              $slaves = \XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array());
-              /*fix*/ if(!is_array($slaves)){ $slaves = array(); }
-              if(!in_array($ns, $slaves)){
-                if(\XLtrace\Hades\url_is_valid_status_json($ns)){
-                  $slaves[] = $ns;
-                  file_put_contents(\XLtrace\Hades\slaves_file(), \XLtrace\Hades\json_encode($slaves));
-                } else { $error[] = $ns.' is not (yet) a valid static-mirror'; }
-              }
-              else { $error[] = $ns.' is already a slave'; }
-            }
-            else{ $error[] = $ns.' is not a valid url'; }
-        }
-        $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($notes, TRUE) : NULL);
-        $html = $debug.'<form method="POST" action="duplicate"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td>Path (on local server):</td><td><input name="path" placeholder="/domains/path/" /></td></tr><tr><td>Add as slave:</td><td><input type="url" name="slave" placeholder="https://" /></td></tr><tr><td><label><input type="checkbox" name="activate" value="true" checked="CHECKED"/> activate</label></td><td align="right"><input type="submit" value="Duplicate" /></td></tr></table>';
-        self::encapsule($html, TRUE);
-        return FALSE;
-    }
+    /*deprecated*/ public static function duplicate(){ deprecated(__METHOD__); return FALSE; }
     public static function decrypt_module(){
         $error = array();
         $success = \XLtrace\Hades\authenticated();
@@ -1245,68 +983,20 @@ class oldjunk extends module {
         }
         $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($result, TRUE) : NULL);
         $html = '<pre>'.$debug.'</pre><form method="POST" action="decrypt"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table></form>';
-        self::encapsule($html, TRUE);
+        \XLtrace\Hades\encapsule($html, NULL);
         return FALSE;
     }
     public static function hermes_hit(){
-        self::encapsule(self::hermes('hit', TRUE), TRUE);
+        \XLtrace\Hades\encapsule(self::hermes('hit', TRUE), NULL);
         return FALSE;
     }
     /*deprecated*/ public static function url_is_valid_status_json($url){ deprecated(__METHOD__); return \XLtrace\Hades\url_is_valid_status_json($url); }
-    public static function encapsule($content=NULL, $print=TRUE, $template='empty.html'){
-        //encapsule when an cache/empty.html skin is available
-
-        // $content = ''.$content.'';
-
-        if($print === TRUE){ print $content; /*exit;*/ }
-        return $content;
-    }
-    public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
-        if(!is_array($list) || count($list) == 0){
-            if(!file_exists(\XLtrace\Hades\slaves_file())){ return FALSE; }
-            $list = \XLtrace\Hades\file_get_json(\XLtrace\Hades\slaves_file(), TRUE, array());
-        }
-        $bool = TRUE; $json = array();
-        foreach($list as $i=>$url){
-          $pu = parse_url($url);
-          if($pu !== FALSE && is_array($pu)){
-            switch(strtolower($action)){
-              case 'upgrade': case 'update':
-                $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').strtolower($action);
-                $buffer = file_get_contents(\XLtrace\Hades\build_url($pu));
-                break;
-              case 'status': case 'status.json':
-                $pu['path'] = $pu['path'].(substr($pu['path'], -1) ? NULL : '/').'status.json';
-                $json[$url] = \XLtrace\Hades\file_get_json(\XLtrace\Hades\build_url($pu));
-                break;
-              default:
-                $bool = FALSE;
-            }
-          }
-        }
-        return (count($json) == 0 ? $bool : $json);
+    /*deprecated*/ public static function encapsule($content=NULL, $print=TRUE, $template='empty.html'){ deprecated(__METHOD__); return \XLtrace\Hades\encapsule($content, $print, $template); }
+    /*deprecated*/ public static function run_slaves($action=NULL, $list=array()){ //herhaps the naming is politically incorrect; should be changed!
+      deprecated(__METHOD__); return \XLtrace\Hades\run_slaves($action, $list);
     }
     /*deprecated*/ public static function build_url($ar=array()){ deprecated(__METHOD__); return \XLtrace\Hades\build_url($ar); }
-    public static function m($str=NULL, $set=array()){
-      if(class_exists('\JSONplus\Morpeus')){ return \JSONplus\Morpheus::parse($str, $set); }
-      preg_match_all('#[\{]([^\}\?\|]+)([^\}]+)?[\}]#', $str, $buffer);
-      foreach($buffer[0] as $i=>$hit){
-        $with = (isset($set[$buffer[1][$i]]) ? $set[$buffer[1][$i]] : FALSE);
-        switch(substr($buffer[2][$i], 0, 1)){
-          case '|':
-            if($with === FALSE){ $with = substr($buffer[2][$i], 1); }
-            break;
-          case '?':
-            $x = explode(':', $buffer[2][$i]);
-            $with = ($with === FALSE ? (isset($x[1]) ? $x[1] : NULL) : substr($x[0], 1));
-            break;
-          default:
-            if($with === FALSE){ $with = $hit; }
-        }
-        $str = str_replace($hit, $with, $str);
-      }
-      return $str;
-    }
+    /*deprecated*/ public static function morph($str=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\morph($str, $set); }
     public static function emailaddress_array2str($to=array()){
         $str = NULL; $i = 0;
         if(is_array($to)){foreach($to as $k=>$t){
@@ -1346,7 +1036,7 @@ class oldjunk extends module {
         $note = NULL;
         if(\XLtrace\Hades\authenticated() !== TRUE){ return \XLtrace\Hades\signin(); }
         $s = self::status_json(FALSE);
-        if($s['PHPMailer'] === false){ return self::encapsule('Unable to send email.', TRUE); }
+        if($s['PHPMailer'] === false){ return \XLtrace\Hades\encapsule('Unable to send email.', NULL); }
         $set = array();
         /*settings*/ $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
         $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
@@ -1366,11 +1056,11 @@ class oldjunk extends module {
 
         //*debug*/ print '<pre>'; print_r($_POST); print_r($set); print '</pre>';
         $html = self::compose_mail_html(array_merge($set, array('notification'=>$note) ));
-        self::encapsule($html, TRUE);
+        \XLtrace\Hades\encapsule($html, NULL);
         return FALSE;
     }
     public static function compose_mail_html($set=array()){
-      return self::m('{notification|}<form method="POST" class="compose-mail">'
+      return \XLtrace\Hades\morph('{notification|}<form method="POST" class="compose-mail">'
         .'<style>form.compose-mail label span { display: inline-block; min-width: 125px; } form.compose-mail span.fw { display: inline-block; width: 575px; } form.compose-mail textarea, form.compose-mail input[name=title] { width: 450px; height: 40px; min-height: 40px; box-sizing: border-box; margin: 2px; padding: 5px 8px; font-family: arial; font-size: 11pt; } form.compose-mail textarea { padding: 10px 14px; resize: vertical; } form.compose-mail textarea[name=message] { height: 200px; } form.compose-mail input[type=submit], form.compose-mail span.fw input { float: right; }</style>'
 
         .'<label for="to"><span>To: </span><textarea name="to" id="to" rows="1" cols="20" class="Emailaddress">{toStr|}</textarea></label><br>'
@@ -1447,27 +1137,14 @@ class module {
     if($as_html === TRUE && function_exists('\Morpheus\markdown_decode')){ $toc = \Morpheus\markdown_decode($toc); }
     return $toc;
   }
-  function mm($template=NULL, $set=array(), $config=array()){
-    $extentions = array('m','md','html');
-    foreach($extentions as $ext){
-    $t = $this->root.$template.'.'.$ext;
-    //*debug*/ print '<pre>'; print_r(array('template'=>$template,'set'=>$set,'config'=>$config,'t'=>$t,'t_exists'=>file_exists($t))); print '</pre>';
-    if(file_exists($t)){
-      $raw = file_get_contents($t);
-      $raw = static_mirror::m($raw, $set);
-      //*markdown fix*/ $raw = \Morpheus\Markdown_decode($raw, array_merge($set, $config)); //$morph = new \Morpheus\markdown(); $raw = $morph->decode($raw, array_merge($set, $config)); //print_r($morph);
-      //*debug*/ print_r($raw); exit;
-      return $raw;
-    }}
-    return (file_exists($this->root.'template_is_not_found.html') ? $this->mm('template_is_not_found', $set) : FALSE);
-  }
+  /*deprecated*/ function morph_template($template=NULL, $set=array(), $config=array()){ deprecated(__METHOD__); return \XLtrace\Hades\morph_template($template, $set, $config); }
   function mapper($for=NULL, $templates=NULL, &$set=array()){
     /*fix*/ if(!is_array($set)){ $set = array(); }
     /*fix*/ if($templates === NULL){ $templates = $this->mapper_set($for); } if($templates == array() ){ $templates = 'template_is_not_found'; }
     if(!is_array($templates)){ $templates = array('null'=>$templates); }
     if(isset($templates['authenticated']) && $templates['authenticated'] === TRUE && !static_mirror::authenticated()){ //force login!
       /*debug*/ print 'authenticated = '; print_r(array($templates['authenticated'], static_mirror::authenticated())); print "\n";
-      //return self::mm('signin', array_merge($set, array('template-file'=>'signin')));
+      //return self::morph_template('signin', array_merge($set, array('template-file'=>'signin')));
     }
     if(isset($templates['method'])){
       $res = $this->mapper_data($for, $set);
@@ -1491,8 +1168,8 @@ class module {
     /*fix*/ $set = array_merge($_GET, $_POST, $set);
     $set = array_merge($set, array('template-file'=>(isset($t) ? $t : $for)));
     //*debug*/print_r(array('res'=>$res,'t'=>$t,'templates'=>$templates,'set'=>$set));
-    if(isset($t)){ return $this->mm($t, $set, $templates); }
-    return $this->mm('template_is_not_found', $set);
+    if(isset($t)){ return $this->morph_template($t, $set, $templates); }
+    return $this->morph_template('template_is_not_found', $set);
   }
   function extentions(){
     return array('m','md','html');
