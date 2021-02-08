@@ -2,6 +2,7 @@
 namespace XLtrace\Hades\module;
 require_once(__DIR__.'/static-mirror.php');
 class wiki extends \XLtrace\Hades\module {
+  var $standalone = TRUE;
   var $file = array();
   function get($for=NULL, &$set=array()){
     if(!is_dir($this->root)){ return FALSE; }
@@ -19,8 +20,10 @@ class wiki extends \XLtrace\Hades\module {
         }
     }
     /*cut short*/ if($str === FALSE){ return FALSE; } else { $this->for = $for; $this->set =& $set; }
-    if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
-    if($this->mode == "text/html" && reset($el)!=='html' && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+    if($this->standalone === TRUE){
+      if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
+      if($this->mode == "text/html" && reset($el)!=='html' && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+    }
     return $str;
   }
 }

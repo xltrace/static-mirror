@@ -7,6 +7,7 @@ if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 if(file_exists(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php')){ require_once(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php'); }
 require_once(__DIR__.'/static-mirror.php');
 
+/*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
 
 $settings = array('root'=>__DIR__);
 if(isset($_GET['mode'])){ $settings['mode'] = $_GET['mode']; }

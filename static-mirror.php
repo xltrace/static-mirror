@@ -12,6 +12,8 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
 
   if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
   if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
+  if(file_exists(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php')){ require_once(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php'); }
+
   if(!defined('STATIC_MIRROR_LIFESPAN')){ define('STATIC_MIRROR_LIFESPAN', 3600); }
   if(!defined('STATIC_MIRROR_SHORT_BASE')){ define('STATIC_MIRROR_SHORT_BASE', 36); }
   if(!defined('STATIC_MIRROR_SHORT_LENGTH')){ define('STATIC_MIRROR_SHORT_LENGTH', 8); }
@@ -21,22 +23,44 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
 
   if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 }
-function get($for=NULL, &$set=array(), $module=FALSE){
+function get($for=NULL, &$set=array(), $module=FALSE, $settings=array()){
+  $bool = $str = $sm = FALSE;
   /*fix*/ $mod = $module; if($mod === FALSE){ $mod = '\\XLtrace\\Hades\\static_mirror'; }
-  /*fix*/ if(is_array($module)){ $mod = '\\Xltrace\\Hades\\module'; }
-  if(!(substr($mod, 0, 1) == '\\')){
-    if(file_exists(__DIR__.'/module.'.$mod.'.php')){ require_once(__DIR__.'/module.'.$mod.'.php'); }
-    $mod = '\\XLtrace\\Hades\\module\\'.$module;
-    if(!class_exists($mod)){ $module = '\\XLtrace\\Hades\\'.$mod; }
+  /*fix*/ elseif(is_string($module) && preg_match('#\|#', $module)){ $mod = explode('|', $module); }
+  //*fix*/ if(is_array($module)){ $mod = '\\Xltrace\\Hades\\module'; }
+
+  /*fix*/ if(!is_array($mod)){ $mod = array($mod); }
+  foreach($mod as $k=>$mreal){
+    if($bool === FALSE){
+      if(is_array($mreal)){
+        $mcache = $m = (isset($mreal['module']) ? $mreal['module'] : (isset($mreal['m']) ? $mreal['m'] : 'module'));
+        $scache = (isset($mreal['settings']) && is_array($mreal['settings']) ? $mreal['settings'] : (isset($mreal['s']) && is_array($mreal['s']) ? $mreal['s'] : $settings));
+      }
+      else{
+        $mcache = $m = $mreal;
+        $scache = $settings;
+      }
+      if(!(substr($m, 0, 1) == '\\')){
+        if(file_exists(__DIR__.'/module.'.$m.'.php')){ require_once(__DIR__.'/module.'.$m.'.php'); }
+        $m = '\\XLtrace\\Hades\\module\\'.$mcache;
+        if(!class_exists($m)){ $m = '\\XLtrace\\Hades\\'.$mcache; }
+      }
+      if(!class_exists($m) || !method_exists($m, 'get')){ $bool = FALSE; }
+      else{
+        $sm = new $m($scache);
+        $str = $sm->get($for, $set);
+        $bool = (!is_bool($str) && is_string($str) ? TRUE : FALSE);
+      }
+      /*debug*/ if(isset($_GET['debug'])){ print __METHOD__." try module ".$m.' => '.($bool ? 'true' : 'false').' ['.strlen($str)."]\n"; }
+    }
   }
-  if(!class_exists($mod) || !method_exists($mod, 'get')){ return FALSE; }
-  $sm = new $mod((is_array($module) ? $module : STATIC_MIRROR_BASE));
-  $str = $sm->get($for, $set);
   if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
-  if($sm->get_mode() == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+  /*debug*/ if(isset($_GET['debug']) && is_object($sm)){ print_r($sm); }
+  if(is_object($sm) && $sm->get_mode() == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+  if(is_object($sm) && $sm->get_mode() == "text/html"){ $str = \XLtrace\Hades\encapsule($str); }
   return $str;
 }
-function module_get($module=FALSE, $for=NULL, &$set=array()){ return \XLtrace\Hades\get($for, $set, $module); }
+function module_get($module=FALSE, $for=NULL, &$set=array(), $settings=array()){ return \XLtrace\Hades\get($for, $set, $module, $settings); }
 function deprecated($item=NULL){ if(isset($_GET['debug']) && in_array($_GET['debug'], array('true','yes',TRUE))){ print ($item === NULL ? 'A method being used' : $item).' is being deprecated.'."\n"; } }
 function notfound($for=NULL){
     $html = "Error 404: Page not found.";
@@ -145,23 +169,8 @@ function is_whitelisted($email=NULL){
   $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\whitelist_file(), TRUE, array());
   return (in_array($email, $json) ? TRUE : FALSE);
 }
-function signin(){
-  //$s = \XLtrace\Hades\status_json(FALSE);
-  //if($s['2ndFA'] === TRUE){ return \XLtrace\Hades\requestaccess(); }
-  //else{
-    $html = '<form method="POST"><table><tr><td>Token:</td><td><input name="token" type="password"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Sign in" /></td></tr></table></form>';
-    return $html; //\XLtrace\Hades\encapsule($html, NULL);
-  //}
-  return FALSE;
-}
-function signoff(){
-  \XLtrace\Hades\authenticated();
-  unset($_SESSION['token']);
-  unset($_SESSION['m']);
-  $html = "Static-mirror has forgotton your authentication-token. You are succesfully signed off.";
-  return $html; //\XLtrace\Hades\encapsule($html, NULL);
-  return FALSE;
-}
+function signin(){ return \XLtrace\Hades\module_get('authenticate', 'signin'); }
+function signoff(){ return \XLtrace\Hades\module_get('authenticate', 'signoff'); }
 function file_get_json($file, $as_array=TRUE, $def=FALSE){
   /*fix*/ if(preg_match("#[\n]#", $file)){ $file = explode("\n", $file); }
   if(is_array($file)){
@@ -631,6 +640,40 @@ function apply_patch($raw=NULL){
   }
   return $raw;
 }
+function emailaddress_array2str($to=array()){
+    $str = NULL; $i = 0;
+    if(is_array($to)){foreach($to as $k=>$t){
+      if($i !== 0){ $str .= ', ';}
+      if(is_array($t) && isset($t['email'])){
+        $str .= (isset($t['name']) ? '"'.$t['name'].'" <'.$t['email'].'>' : $t['email']);
+      }
+      else{ $str .= $t; }
+      $i++;
+    }}
+    return $str;
+}
+function emailaddress_str2array($str=NULL){
+    $emailpattern = '[_a-zA-Z0-9-]+(\.[_a-zA-Z0-9-]+)*@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z]{2,})';
+    $to = $set = array();
+    preg_match_all('#'.$emailpattern.'#', $str, $set);
+    foreach($set[0] as $i=>$e){
+      $to[$i] = array('email' => $e); $str = str_replace($e, '@{'.$i.'}', $str);
+    }
+    preg_match_all('#(\"([^\"]+)\"\s*\<\@\{([0-9]+)\}\>)#', $str, $set);
+    foreach($set[3] as $j=>$m){
+      $to[(int) $m]['name'] = $set[2][$j];
+    }
+    return $to;
+}
+function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){
+    $set = ($set === TRUE ? \XLtrace\Hades\file_get_json(\XLtrace\Hades\addressbook_file(), TRUE, array()) : (is_array($set) ? $set : array()) );
+    foreach($to as $i=>$t){
+      if(is_string($t)){ $to[$i] = \XLtrace\Hades\array_filter($set, array($tag=>$t), 0); }
+      elseif(is_array($t) && isset($t[$tag])){ $m = \XLtrace\Hades\array_filter($set, array($tag=>$t[$tag]), 0); $to[$i] = array_merge($t, (is_array($m) ? $m : array())); }
+    }
+    return $to;
+}
+
 function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){
   if(defined('HADES_ALLOW_MAIL') && HADES_ALLOW_MAIL === FALSE){ return FALSE; } //deadswitch to disable mail
   $count = 0;
@@ -847,89 +890,14 @@ class oldjunk extends module {
     /*deprecated*/ public static function library(){ deprecated(__METHOD__); return \XLtrace\Hades\library(); }
     /*deprecated*/ public static function large_base_convert($numstring, $frombase, $tobase, $bitlength=0, $minlength=0){ deprecated(__METHOD__); return \XLtrace\Hades\large_base_convert($numstring, $frombase, $tobase, $bitlength, $minlength); }
     /*deprecated*/ public static function generate_m_hash($emailaddress=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\generate_m_hash($emailaddress); }
-    public static function requestaccess($emailaddress=NULL){
-      /*fix*/ if($emailaddress === NULL && isset($_POST['emailaddress'])){ $emailaddress = $_POST['emailaddress']; }
-      $s = self::status_json(FALSE);
-      if(FALSE && $s['2ndFA'] === FALSE){
-        \XLtrace\Hades\encapsule('Request Access is not allowed or able to do an 2<sup>nd</sup>FA method request', NULL);
-        return FALSE;
-      }
-      $mode = NULL;
-      $key = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), 'key', FALSE);
-      if(isset($emailaddress)){
-        $mode = 'request';
-        if(\XLtrace\Hades\is_whitelisted($emailaddress)){ # check if emailaddress exists within database
-          $data = array('e'=>$emailaddress,'i'=>$_SERVER['REMOTE_ADDR'],'t'=>(int) date('U'));
-          $jsonstr = json_encode($data);
-          $m = \XLtrace\Hades\encrypt($jsonstr, $key);
-          $short = \XLtrace\Hades\put_short_by_m($m);
-          $fs = array_merge($data, array('data'=>$data, 'json'=>$jsonstr, 'short'=>$short, 'm'=>$m, 'l'=>strlen($m), 'sURI'=>\XLtrace\Hades\current_URI(array('for'=>$_GET['for'],'m'=>$short)), 'mURI'=>\XLtrace\Hades\current_URI(array('for'=>$_GET['for'],'m'=>$m)), 'URI'=>\XLtrace\Hades\current_URI() ));
-          //*debug*/ print '<pre>'; print_r($fs); print '</pre>';
-          //*debug*/ print '<pre>'; $raw = str_repeat($data['e'],20); for($i=1;$i<=strlen($raw);$i++){ $j = \XLtrace\Hades\encrypt(substr($raw, 0, $i), $key); print $i.".\t".strlen($j)."\t".number_format($i/strlen($j)*100 , 2)."%\t".$j."\n";} print '</pre>';
-          # email by PHPMailer $data['e'] := \XLtrace\Hades\current_URI($m)
-          self::send_mail('Request of access by 2ndFA', self::requestaccess_email_html($fs), $emailaddress, $fs);
-        } else { //emailaddress is not whitelisted!!
-          $mode = 'request-failed';
-        }
-      } elseif(isset($_GET['m'])){
-        $mode = 'receive';
-        \XLtrace\Hades\authenticate_by_hash($_GET['m'], $key);
-      }
-      switch(strtolower($mode)){
-        case 'receive':
-          //self::process_requestaccess();
-          $html = '(receive data, try to authenticate)';
-          break;
-        case 'request':
-          $html = '(request made, a mail has been sent)';
-          break;
-        case 'request-failed':
-          $html = '(request failed)';
-          break;
-        default:
-          $html = '(insert emailaddress form)';
-          $html = '<form method="POST"><table><tr><td>Email address:</td><td><input name="emailaddress" type="email"/></td></tr><tr><td colspan="2" align="right"><input type="submit" value="Request Access" /></td></tr></table></form>';
-      }
-      \XLtrace\Hades\encapsule($html, NULL);
-      return FALSE;
-    }
-    public static function requestaccess_email_html($set=array()){
-      $html = 'You have requested access to <a href="{URI|localhost}">{URI|localhost}</a>. Your access is being granted by this link: <a href="{sURI|localhost}">{sURI|}</a>';
-      return \XLtrace\Hades\morph($html, $set);
-    }
+    /*deprecated*/ public static function requestaccess($emailaddress=NULL){ deprecated(__METHOD__); return FALSE; }
+    /*deprecated*/ public static function requestaccess_email_html($set=array()){ deprecated(__METHOD__); return NULL; }
     /*deprecated*/ public static function notfound($for=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\notfound($for); }
     /*deprecated*/ public static function get_size($path=STATIC_MIRROR_BASE, $recursive=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\get_size($path, $recursive); }
     /*deprecated*/ public static function count_pages($path=FALSE, $ext=FALSE, $sitemap=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\count_pages($path, $ext, $sitemap); }
-    /*deprecated*/ public static function status(){ deprecated(__METHOD__);
-        $s = self::status_json(FALSE);
-        if(!is_array($s)){ $s = array(); }
-        if(isset($s['system-fingerprint'])){ $html = self::status_html($s, TRUE); }
-        else{
-          $html = NULL; $header = TRUE;
-          foreach($s as $key=>$set){ $html .= self::status_html($set, $header); $header = FALSE; }
-        }
-        \XLtrace\Hades\encapsule($html, NULL);
-        return FALSE;
-    }
-    /*deprecated*/ public static function status_html($set=array(), $with_style=FALSE){ deprecated(__METHOD__);
-        if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>a { text-decoration: none; color: #555; } a:hover { text-decoration: underline; } a:hover i { opacity: 0.8; } .bigicon { font-size: 16pt; margin: 4px 2px; } .green { color: green; } .light-gray { color: #CCC; } .black { color: black; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
-
-        $icstr = NULL;
-        if(is_bool($set)){ return $str; }
-      $icons = array('configured'=>'cog','force-https'=>'lock','htaccess'=>'hat-wizard','2ndFA'=>'paper-plane',/*'registery'=>'user-plus',*/'whitelist'=>'clipboard-list','mirror'=>'closed-captioning',/*'active-mirror'=>'microscope',*/'alias'=>'object-ungroup','cache'=>'copy',/*'crontab'=>'stopwatch',*/'encapsule'=>'file-import','simple_html_dom'=>'code','patch-size'=>'dumbbell',/*'hades'=>'fire-alt',*/'composer'=>'database','composer-phar'=>'robot','hermes'=>'comment-dots'/*,'wiki'=>'file-word'*/,'mailbox'=>'envelope-open-text'/*,'cockpit'=>'mail-bulk','backup'=>'file-archive'*/);
-        $iconsurl = array('hermes'=>'hermes-remote','configured'=>'{URI|}/configure','backup'=>'{URI|}/backup','cockpit'=>'{URI|}/cockpit','wiki'=>'{URI|}/wiki','mailbox'=>'{URI|}/mailbox','2ndFA'=>'{URI|}/signin','registery'=>'{URI|}/register');
-        foreach($icons as $tag=>$ico){
-          $href = (isset($iconsurl[$tag]) && (isset($set[$tag]) ? !($set[$tag] === FALSE) : FALSE) );
-          if($href){ $icstr .= '<a href="'.(isset($set[$iconsurl[$tag]]) ? $set[$iconsurl[$tag]] : $iconsurl[$tag]).'">'; }
-          $icstr .= '<i class="bigicon fa fa-fw fa-'.$ico.' '.$ico.(isset($set[$tag]) && (is_bool($set[$tag]) || $set[$tag] == '0') ? ($set[$tag] == TRUE ? ' true green' : ' false light-gray') : ' null black').'" title="'.$tag.(isset($set[$tag]) && !is_bool($set[$tag]) ? ': '.$set[$tag] : NULL).'"></i>';
-          if($href){ $icstr .= '</a>'; }
-        }
-
-        $str .= '<p><i class="bigicon fa fa-swatchbook black" title="{system-size} {system-fingerprint|} {system-mod|}"></i> <a href="{URI|#}" style="display: inline-block; min-width: 240px;">{URI|localhost}</a> '.$icstr.' <small style="float: right;" class="light-gray">{SERVER_SOFTWARE|} {SERVER_PROTOCOL|}</small></p>';
-
-        return \XLtrace\Hades\morph($str, $set);
-    }
-    /*deprecated*/ public static function status_json($print=TRUE){ deprecated(__METHOD__); \XLtrace\Hades\module_get('status', 'status.json', $print); }
+    /*deprecated*/ public static function status(){ deprecated(__METHOD__); return \XLtrace\Hades\module_get('status', 'status.json'); }
+    /*deprecated*/ public static function status_html($set=array(), $with_style=FALSE){ deprecated(__METHOD__); return \XLtrace\Hades\module_get('status', 'status', $set); }
+    /*deprecated*/ public static function status_json($print=TRUE){ deprecated(__METHOD__); return \XLtrace\Hades\module_get('status', 'status.json', $print); }
     /*deprecated*/ public static function current_URI($el=NULL, $pl=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\current_URI($el, $pl, $set); }
     /*deprecated*/ public static function configure(){ deprecated(__METHOD__); return FALSE; }
     public static function management(){
@@ -969,23 +937,7 @@ class oldjunk extends module {
         return ($as_html === TRUE ? $html : $list);
     }
     /*deprecated*/ public static function duplicate(){ deprecated(__METHOD__); return FALSE; }
-    public static function decrypt_module(){
-        $error = array();
-        $success = \XLtrace\Hades\authenticated();
-        if($success !== TRUE){ return \XLtrace\Hades\signin(); }
-        $html = "Decrypt Module";
-        //edit slaves.json = [ url, url ]
-        $result = NULL;
-        if(isset($_POST['raw'])){ //duplicate static-mirror.php to $path
-          $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
-          $tokens = (isset($_POST['tokens']) && strlen($_POST['tokens'])>0 ? $_POST['tokens'] : $json['key']);
-          $result = \XLtrace\Hades\decrypt(trim($_POST['raw']), explode(' ', preg_replace('#\s+#', ' ', $tokens)));
-        }
-        $debug = (FALSE ? print_r($_POST, TRUE).print_r($error, TRUE).print_r($result, TRUE) : NULL);
-        $html = '<pre>'.$debug.'</pre><form method="POST" action="decrypt"><table><tr><th colspan="2">'.$html.'</th></tr><tr><td colspan="2"><textarea name="raw" style="width: 100%; min-width: 400px; min-height: 150px;">'.(isset($_POST['raw']) ? $_POST['raw'] : NULL).'</textarea></td></tr><tr><td>Tokens:</td><td><textarea name="tokens" style="width: 100%;">'.(isset($_POST['tokens']) ? $_POST['tokens'] : NULL).'</textarea></td></tr><tr><td colspan="2"><pre>'.$result.'</pre></td></tr><tr><td><label><input type="checkbox" name="commit" value="true" '.(isset($_POST['commit']) ? 'checked="CHECKED"' : NULL).'/> commit</label></td><td align="right"><input type="submit" value="Decrypt" /></td></tr></table></form>';
-        \XLtrace\Hades\encapsule($html, NULL);
-        return FALSE;
-    }
+    /*deprecated*/ public static function decrypt_module(){ deprecated(__METHOD__); return \XLtrace\Hades\module_get('management', 'decrypt'); }
     public static function hermes_hit(){
         \XLtrace\Hades\encapsule(self::hermes('hit', TRUE), NULL);
         return FALSE;
@@ -997,39 +949,9 @@ class oldjunk extends module {
     }
     /*deprecated*/ public static function build_url($ar=array()){ deprecated(__METHOD__); return \XLtrace\Hades\build_url($ar); }
     /*deprecated*/ public static function morph($str=NULL, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\morph($str, $set); }
-    public static function emailaddress_array2str($to=array()){
-        $str = NULL; $i = 0;
-        if(is_array($to)){foreach($to as $k=>$t){
-          if($i !== 0){ $str .= ', ';}
-          if(is_array($t) && isset($t['email'])){
-            $str .= (isset($t['name']) ? '"'.$t['name'].'" <'.$t['email'].'>' : $t['email']);
-          }
-          else{ $str .= $t; }
-          $i++;
-        }}
-        return $str;
-    }
-    public static function emailaddress_str2array($str=NULL){
-        $emailpattern = '[_a-zA-Z0-9-]+(\.[_a-zA-Z0-9-]+)*@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*(\.[a-zA-Z]{2,})';
-        $to = $set = array();
-        preg_match_all('#'.$emailpattern.'#', $str, $set);
-        foreach($set[0] as $i=>$e){
-          $to[$i] = array('email' => $e); $str = str_replace($e, '@{'.$i.'}', $str);
-        }
-        preg_match_all('#(\"([^\"]+)\"\s*\<\@\{([0-9]+)\}\>)#', $str, $set);
-        foreach($set[3] as $j=>$m){
-          $to[(int) $m]['name'] = $set[2][$j];
-        }
-        return $to;
-    }
-    public static function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){
-        $set = ($set === TRUE ? \XLtrace\Hades\file_get_json(\XLtrace\Hades\addressbook_file(), TRUE, array()) : (is_array($set) ? $set : array()) );
-        foreach($to as $i=>$t){
-          if(is_string($t)){ $to[$i] = \XLtrace\Hades\array_filter($set, array($tag=>$t), 0); }
-          elseif(is_array($t) && isset($t[$tag])){ $m = \XLtrace\Hades\array_filter($set, array($tag=>$t[$tag]), 0); $to[$i] = array_merge($t, (is_array($m) ? $m : array())); }
-        }
-        return $to;
-    }
+    /*deprecated*/ public static function emailaddress_array2str($to=array()){ deprecated(__METHOD__); return \XLtrace\Hades\emailaddress_array2str($to); }
+    /*deprecated*/ public static function emailaddress_str2array($str=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\emailaddress_str2array($str); }
+    /*deprecated*/ public static function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){ deprecated(__METHOD__); return \XLtrace\Hades\emailaddress_autocomplete($to, $set, $tag); }
     /*deprecated*/ public static function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\array_filter($set, $match, $limit, $rid); }
     /*deprecated*/ public static function tag_array_unique($tag="email", $to=array(), $merge=array()){ deprecated(__METHOD__); return \XLtrace\Hades\tag_array_unique($tag, $to, $merge); }
     public static function mailbox(){
@@ -1089,7 +1011,7 @@ class static_mirror extends oldjunk {
 }
 /**********************************************************************/
 /**********************************************************************/
-function module_var_list(){ return array('mode','mapper','root','for','path','patch'); }
+function module_var_list(){ return array('mode','mapper','root','for','path','patch','standalone'); }
 class module {
   var $for = NULL;
   var $set = array();
@@ -1240,6 +1162,7 @@ class module {
 if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
   /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
-  \XLtrace\Hades\get($_GET['for']);
+  $s = $settings = array('standalone'=>FALSE,'path'=>$path,'patch'=>$patch); foreach(\XLtrace\Hades\module_var_list() as $z){ if(!in_array($z, array('root','mapper','path','patch')) && isset($_GET[$z])){ $settings[$z] = $_GET[$z]; } }
+  print \XLtrace\Hades\get($_GET['for'], $s, array('auth2ndFA','authenticate','status',array('module'=>'wiki','settings'=>array('root'=>__DIR__,'mode'=>'text/html','standalone'=>$settings['standalone'])),'maintenance','management','static_mirror'), $settings); exit;
 }
 ?>

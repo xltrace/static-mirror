@@ -8,6 +8,8 @@ if(class_exists('JSONplus')){ $_POST['raw'] = \JSONplus::worker('raw'); }
 if(file_exists(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php')){ require_once(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php'); }
 require_once(__DIR__.'/static-mirror.php');
 
+/*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
+
 $settings = array('mapper'=>str_replace('.php','.json',__FILE__));
 foreach(\XLtrace\Hades\module_var_list() as $z){
   if(isset($_GET[$z])){ $settings[$z] = $_GET[$z]; }

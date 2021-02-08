@@ -111,7 +111,7 @@ class static_mirror extends \XLtrace\Hades\module {
         case 'woff': header('content-type: font/woff'); break;
         case 'woff2': header('content-type: font/woff2'); break;
         case 'xml': header('content-type: application/xml'); $hermes = TRUE; break;
-        default: header("HTTP/1.0 404 Not Found"); \XLtrace\Hades\hermes($for); \XLtrace\Hades\notfound($for); return FALSE;
+        default: header("HTTP/1.0 404 Not Found"); \XLtrace\Hades\hermes($for); return \XLtrace\Hades\notfound($for); return FALSE;
     }
 
     if(!isset($hermes) || $hermes !== FALSE){ \XLtrace\Hades\hermes($for); }
