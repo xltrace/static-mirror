@@ -82,6 +82,8 @@ function hermes_default_remote(){ return HERMES_REMOTE; }
 function raw_git_path(){ return 'https://raw.githubusercontent.com/xltrace/static-mirror/master/'; }
 function git_src(){ return 'https://github.com/xltrace/static-mirror'; }
 
+function status_json($print=NULL){ return \XLtrace\Hades\module_get('status','status.json'); }
+
 function authenticated($email=NULL){
     if(!file_exists(\XLtrace\Hades\hermes_file())){ return FALSE; }
     $json = \XLtrace\Hades\file_get_json(\XLtrace\Hades\hermes_file(), TRUE, array());
@@ -954,46 +956,8 @@ class oldjunk extends module {
     /*deprecated*/ public static function emailaddress_autocomplete($to=array(), $set=TRUE, $tag="email"){ deprecated(__METHOD__); return \XLtrace\Hades\emailaddress_autocomplete($to, $set, $tag); }
     /*deprecated*/ public static function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\array_filter($set, $match, $limit, $rid); }
     /*deprecated*/ public static function tag_array_unique($tag="email", $to=array(), $merge=array()){ deprecated(__METHOD__); return \XLtrace\Hades\tag_array_unique($tag, $to, $merge); }
-    public static function mailbox(){
-        $note = NULL;
-        if(\XLtrace\Hades\authenticated() !== TRUE){ return \XLtrace\Hades\signin(); }
-        $s = self::status_json(FALSE);
-        if($s['PHPMailer'] === false){ return \XLtrace\Hades\encapsule('Unable to send email.', NULL); }
-        $set = array();
-        /*settings*/ $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
-        $set['message'] = (isset($_POST['message']) ? $_POST['message'] : (isset($_GET['message']) ? $_GET['message'] : NULL));
-        $set['title'] = (isset($_POST['title']) ? $_POST['title'] : (isset($_GET['title']) ? $_GET['title'] : NULL));
-        // note you should proces $_POST['raw'] for commandline execution
-        foreach(array('to','cc','bcc','reply-to','from') as $m){
-          $set[$m] = (isset($_POST[$m]) ? array_merge((isset($set[$m]) && is_array($set[$m]) ? $set[$m] : array()), self::emailaddress_str2array($_POST[$m])) : (isset($set[$m]) ? $set[$m] : array() ));
-          $set[$m] = \XLtrace\Hades\tag_array_unique('email', $set[$m]);
-          $set[$m] = self::emailaddress_autocomplete($set[$m]);
-          if(in_array($m, array('reply-to','from'))){ $set[$m] = end($set[$m]); }
-          $set[$m.'Str'] = self::emailaddress_array2str($set[$m]);
-        }
-        //*debug*/ print '<pre>'; print_r($set); print '</pre>';
-
-        /*settings*/ $set = array_merge(\XLtrace\Hades\file_get_json(\XLtrace\Hades\mailbox_file(), TRUE, array()), (is_array($set) ? $set : array()));
-        $note = self::send_mail($set);
-
-        //*debug*/ print '<pre>'; print_r($_POST); print_r($set); print '</pre>';
-        $html = self::compose_mail_html(array_merge($set, array('notification'=>$note) ));
-        \XLtrace\Hades\encapsule($html, NULL);
-        return FALSE;
-    }
-    public static function compose_mail_html($set=array()){
-      return \XLtrace\Hades\morph('{notification|}<form method="POST" class="compose-mail">'
-        .'<style>form.compose-mail label span { display: inline-block; min-width: 125px; } form.compose-mail span.fw { display: inline-block; width: 575px; } form.compose-mail textarea, form.compose-mail input[name=title] { width: 450px; height: 40px; min-height: 40px; box-sizing: border-box; margin: 2px; padding: 5px 8px; font-family: arial; font-size: 11pt; } form.compose-mail textarea { padding: 10px 14px; resize: vertical; } form.compose-mail textarea[name=message] { height: 200px; } form.compose-mail input[type=submit], form.compose-mail span.fw input { float: right; }</style>'
-
-        .'<label for="to"><span>To: </span><textarea name="to" id="to" rows="1" cols="20" class="Emailaddress">{toStr|}</textarea></label><br>'
-        .'<label for="cc"><span>CC: </span><textarea name="cc" id="cc" rows="1" cols="20" class="Emailaddress">{ccStr|}</textarea></label><br>'
-        .'<label for="bcc"><span>BCC: </span><textarea name="bcc" id="bcc" rows="1" cols="20" class="Emailaddress">{bccStr|}</textarea></label><br>'
-
-        .'<label for="title"><span>Title: </span><input type="text" name="title" id="title" value="{title|}" placeholder="Title"></label><br>'
-        .'<label for="message"><span>Message: </span><textarea name="message" id="message" rows="8" cols="20" class="wysiwyg html">{message|}</textarea></label><br>'
-        .'<span class="fw"><input type="submit" name="action" value="Send"/> <input type="button" name="action" value="Preview"/></span>'
-        .'</form>', $set);
-    }
+    /*deprecated*/ public static function mailbox(){ deprecated(__METHOD__); return \XLtrace\Hades\module_get('cockpit', 'mailbox'); }
+    /*deprecated*/ public static function compose_mail_html($set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\module\cockpit::compose_mail_html($set); }
     /*deprecated*/ public static function send_mail($title=NULL, $message=NULL, $to=FALSE, $set=array()){ deprecated(__METHOD__); return \XLtrace\Hades\send_mail($title, $message, $to, $set); }
     /*deprecated*/ public static function is_emailaddress($email=NULL){ deprecated(__METHOD__); return \XLtrace\Hades\is_emailaddress($email); }
     /*deprecated*/ public static function hermes($path=FALSE, $mode=FALSE, $addpostget=TRUE){ deprecated(__METHOD__); return \XLtrace\Hades\hermes($path, $mode, $addpostget); }
