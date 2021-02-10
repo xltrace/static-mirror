@@ -244,6 +244,7 @@ function current_URI($el=NULL, $pl=NULL, $set=array()){
   }
   /*fix*/ if(is_array($set)){ $uri = array_merge($uri, $set); }
   /*fix*/ if(isset($uri['query']['for']) && (!isset($uri['path']) || strlen($uri['path']) < 1)){ $uri['path'] = $uri['query']['for']; unset($uri['query']['for']); }
+  /*fix*/ if(FALSE){foreach(array('module','mapper') as $k){if(isset($_GET[$k]) && !isset($uri['query'][$k])){ $uri['query'][$k] = $_GET[$k]; }}}
   return \XLtrace\Hades\build_url($uri);
 }
 function url_patch($str, $find=NULL, $host=FALSE){
@@ -596,7 +597,7 @@ function morph_template($template=NULL, $set=array(), $config=array()){
     //*debug*/ print_r($raw); exit;
     return $raw;
   }}
-  return (file_exists($this->root.'template_is_not_found.html') ? $this->morph_template('template_is_not_found', $set) : FALSE);
+  return (file_exists((isset($config['root']) ? $config['root'] : NULL).'template_is_not_found.html') ? \XLtrace\Hades\morph_template('template_is_not_found', $set, $config) : FALSE);
 }
 function apply_patch($raw=NULL){
   if(isset($this)){
@@ -982,6 +983,7 @@ class module {
   var $mode = "text/markdown";
   var $mapper = FALSE; // __FILE__ .json
   var $root = FALSE;
+  var $standalone = TRUE;
   function __construct($settings=array()){
     foreach(\Xltrace\Hades\module_var_list() as $el){
       if(isset($settings[$el]) && isset($this->$el)){ $this->$el = $settings[$el]; }
@@ -996,9 +998,16 @@ class module {
     $str = FALSE;
     switch(strtolower($for)){
       case 'toc': $str = $this->toc(); break;
+      case 'sitemap.xsl': $str = \XLtrace\Hades\module_get('sitemap','sitemap.xsl'); $this->mode = 'application/xsl'; break;
       default:
-        $db = $this->mapper_set(NULL);
-        if(isset($db[strtolower($for)])){ $str = $this->mapper(strtolower($for)); }
+        $ext = FALSE; if(preg_match('#\.([a-z0-9]+)$#', $for, $buff)){ $ext = $buff[1]; }
+        if($this->mapper !== FALSE && in_array($ext, array('xml','json','xsl','html')) && $for == substr($this->get_sitemap_URI(TRUE), 0, -3).$ext){
+          $str = \XLtrace\Hades\module_get('sitemap','sitemap.'.$ext,$this->mapper_sitemap_json()); $this->mode = 'application/'.$ext;
+        }
+        else{
+          $db = $this->mapper_set(NULL);
+          if(isset($db[strtolower($for)])){ $str = $this->mapper(strtolower($for)); }
+        }
     }
     if($str != FALSE){ $this->for = $for; $this->set =& $set; }
     if($this->mode == "text/html" && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
@@ -1007,13 +1016,21 @@ class module {
   function detect($for=NULL, &$set=array()){
     if($this->mapper !== FALSE){
       $db = $this->mapper_set(NULL);
-      return (in_array(strtolower($for), array('toc')) || isset($db[strtolower($for)]));
+      return (in_array(strtolower($for), array('toc', $this->get_sitemap_URI(TRUE))) || isset($db[strtolower($for)]));
     }
     else{
       $r = $this->get($for); return (in_array($r, array(TRUE, FALSE, NULL)) ? $r : TRUE);
     }
   }
   function get_mode(){ return $this->mode; }
+  function get_sitemap_URI($short=FALSE){
+    $uri = FALSE;
+    if($this->mapper !== FALSE){
+      $uri = \XLtrace\Hades\current_URI(basename(str_replace('\\','/',get_class($this))).'-sitemap.xml');
+      if($short !== FALSE){ $uri = substr(parse_url($uri, PHP_URL_PATH),1); }
+    }
+    return $uri;
+  }
   function toc($as_html=FALSE){
     $db = $this->mapper_set(NULL);
     $toc = NULL;
@@ -1070,6 +1087,15 @@ class module {
     );
     if(file_exists(preg_replace('#\.php$#', '.json', $this->mapper))){ $json = json_decode(file_get_contents(preg_replace('#\.php$#', '.json', $this->mapper)), TRUE); if(is_array($json)){ $set = $json; }}
     return ($for === NULL ? $set : (isset($set[strtolower($for)]) ? $set[strtolower($for)] : array()));
+  }
+  function mapper_sitemap_json($set=array()){
+    $map = array();
+    if(file_exists(preg_replace('#\.php$#', '.json', $this->mapper))){ $json = json_decode(file_get_contents(preg_replace('#\.php$#', '.json', $this->mapper)), TRUE); if(is_array($json)){ $set = $json; }}
+    foreach($set as $k=>$s){
+      $map[] = array('loc'=>\XLtrace\Hades\current_URI($k));
+      //$map[] = \XLtrace\Hades\current_URI($k);
+    }
+    return $map;
   }
   function all_templates($all=TRUE, $create=FALSE, $extention='md'){
     $extentions = $this->extentions();

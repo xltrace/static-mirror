@@ -4,14 +4,16 @@ require_once(__DIR__.'/static-mirror.php');
 class status extends \XLtrace\Hades\module {
   function get($for=NULL, &$set=array()){
     switch(strtolower($for)){
-      case 'status': $str = $this->status_html(); break;
+      case 'status': $str = $this->status_html($set, TRUE); break;
       case 'status.json': $str = $this->status_json((!is_array($set) ? $set : (isset($set['print']) ? $set['print'] : NULL))); break;
       default:
         return FALSE;
     }
     /*cut short*/ if($str === FALSE){ return FALSE; } else { $this->for = $for; $this->set =& $set; }
-    if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
-    if($this->mode == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+    if(isset($this->standalone) && $this->standalone === TRUE){
+      if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
+      //if($this->mode == "text/html" && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
+    }
     return $str;
   }
 
@@ -27,7 +29,12 @@ class status extends \XLtrace\Hades\module {
     //\XLtrace\Hades\encapsule($html, TRUE); return FALSE;
   }
   function status_html($set=array(), $with_style=FALSE){
-    if($with_style !== FALSE){ $str = '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/><link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/><style>a { text-decoration: none; color: #555; } a:hover { text-decoration: underline; } a:hover i { opacity: 0.8; } .bigicon { font-size: 16pt; margin: 4px 2px; } .green { color: green; } .light-gray { color: #CCC; } .black { color: black; } .gray { color: gray; } .red { color: red; }</style>'; } else { $str = NULL; }
+    $str = NULL;
+    if($with_style !== FALSE){
+      $str .= '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css"/>';
+      $str .= '<link ref="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/brands.min.css"/>';
+      $str .= '<style>a { text-decoration: none; color: #555; } a:hover { text-decoration: underline; } a:hover i { opacity: 0.8; } .bigicon { font-size: 16pt; margin: 4px 2px; } .green { color: green; } .light-gray { color: #CCC; } .black { color: black; } .gray { color: gray; } .red { color: red; }</style>';
+    }
 
     $icstr = NULL;
     if(is_bool($set)){ return $str; }
