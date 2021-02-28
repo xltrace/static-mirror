@@ -3,7 +3,10 @@
     "description": "Statically mirror (a subset of) your main website",
     "type": "library",
     "require": {
-        "php": "^5.4 || ^7.0"
+        "php": "^5.4 || ^7.0",
+	"ext-curl": "*",
+	"ext-zip": "*",
+	"jsonplus/jsonplus": "^1.0"
     },
     "suggest": {
 	"jsonplus/all":"Provides human-readable JSON with several ways to map data, and a CLI worker on linux commandline",
