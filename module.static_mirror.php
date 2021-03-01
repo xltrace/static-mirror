@@ -6,7 +6,7 @@ class static_mirror extends \XLtrace\Hades\module {
   var $patch = FALSE;
   function get($for=NULL, &$set=array()){
     switch(strtolower($for)){
-      //case 'update': $str = $this->update(); break;
+      case 'update': $str = $this->update(); break;
       default:
         if(isset($for) && strlen($for) > 0){
             if(!$this->alias($for, TRUE)){
