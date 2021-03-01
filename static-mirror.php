@@ -10,7 +10,7 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
   $patch = __DIR__.'/patch/';
   if(file_exists(__DIR__.'/settings.php')){ require_once(__DIR__.'/settings.php'); }
 
-  if(file_exists(__DIR__.'/vendor/autoload.php')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
+  if(file_exists(__DIR__.'/vendor/autoload.php') && !defined('COMPOSER')){ define('COMPOSER', TRUE); require_once(__DIR__.'/vendor/autoload.php'); }
   if(file_exists(__DIR__.'/simple_html_dom.php')){ require_once(__DIR__.'/simple_html_dom.php'); }
   if(file_exists(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php')){ require_once(dirname(__DIR__).'/Morpheus/Morpheus-Markdown.php'); }
 
@@ -25,6 +25,8 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
 }
 
 require_once('hades.php');
+
+//*debug*/ print_r(get_included_files());
 
 if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(dirname(__DIR__, 2)) != 'vendor'){
   //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
