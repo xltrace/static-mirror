@@ -35,7 +35,7 @@ class sitemap extends \XLtrace\Hades\module {
         return FALSE;
     }
     $this->for = $for;
-    if($this->standalone === TRUE){ header('Content-type: '.$this->mode); }
+    if($this->standalone === TRUE){ header('Content-type: '.$this->mode); print $str; exit; }
     return $str;
   }
   function robots_txt(){

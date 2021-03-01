@@ -5,7 +5,7 @@ class status extends \XLtrace\Hades\module {
   function get($for=NULL, &$set=array()){
     switch(strtolower($for)){
       case 'status': $str = $this->status_html($set, TRUE); break;
-      case 'status.json': $str = $this->status_json((!is_array($set) ? $set : (isset($set['print']) ? $set['print'] : NULL))); break;
+      case 'status.json': $this->standalone = TRUE; $str = $this->status_json((!is_array($set) ? $set : (isset($set['print']) ? $set['print'] : NULL))); break;
       default:
         return FALSE;
     }

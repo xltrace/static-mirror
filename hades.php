@@ -28,14 +28,16 @@ function get($for=NULL, &$set=array(), $module=FALSE, $settings=array()){
         $sm = new $m($scache);
         $str = $sm->get($for, $set);
         $bool = (!is_bool($str) && is_string($str) ? TRUE : FALSE);
+        //*debug*/if($bool == TRUE){ print_r($sm); }
       }
       /*debug*/ if(isset($_GET['debug'])){ print __METHOD__." try module ".$m.' => '.($bool ? 'true' : 'false').' ['.strlen($str)."]\n"; }
     }
   }
   if(is_array($set) && class_exists('\Morpheus')){ $morph = new \Morpheus(); $str = $morph->parse($str, $set); }
-  /*debug*/ if(isset($_GET['debug']) && is_object($sm)){ print_r($sm); }
+  /*debug*/ if(isset($_GET['debug']) && is_object($sm)){ print '<!-- '; print_r($sm); print ' -->'; }
   if(is_object($sm) && $sm->get_mode() == "text/html" /*&& reset($el)!=='html'*/ && function_exists('\Morpheus\markdown_decode')){ $str = \Morpheus\markdown_decode($str); }
   if(is_object($sm) && $sm->get_mode() == "text/html"){ $str = \XLtrace\Hades\encapsule($str); }
+  if(is_object($sm) && $sm->is_standalone() === TRUE){ header('Content-type: '.$sm->get_mode()); print $str; exit; }
   return $str;
 }
 function module_get($module=FALSE, $for=NULL, &$set=array(), $settings=array()){ return \XLtrace\Hades\get($for, $set, $module, $settings); }
@@ -1003,6 +1005,7 @@ class module {
       $r = $this->get($for); return (in_array($r, array(TRUE, FALSE, NULL)) ? $r : TRUE);
     }
   }
+  function is_standalone(){ return $this->standalone; }
   function get_mode(){ return $this->mode; }
   function get_sitemap_URI($short=FALSE){
     $uri = FALSE;
