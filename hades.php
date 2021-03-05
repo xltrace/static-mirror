@@ -279,18 +279,38 @@ function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){
   $delimiter = array('('=>')','{'=>'}','['=>']','<'=>'>'); foreach(array('#','/','@','+','%') as $x){ $delimiter[$x] = $x; }
   $filter = array();
   foreach($set as $k=>$s){
-      foreach($match as $x=>$y){
+    foreach($match as $x=>$b){
+      /*fix*/ if(!is_array($b)){ $b = array($b); }
+      $bool = FALSE;
+      foreach($b as $c=>$y){
         if($y == NULL || preg_match('#^(true|false|null)$#i', $y)){
           switch(strtolower($y)){
             case 'true':
-              if(!isset($s[$x])){ unset($set[$k]); }
-              elseif(is_bool($s[$x]) && $s[$x] !== TRUE){ unset($set[$k]); }
+              //if(!isset($s[$x])){ unset($set[$k]); }
+              //elseif(is_bool($s[$x]) && $s[$x] !== TRUE){ unset($set[$k]); }
+              if(isset($s[$x]) && (is_bool($s[$x]) ? $s[$x] === TRUE : TRUE)){ $bool = TRUE; }
               break;
             case 'false':
-              if(isset($s[$x]) && $s[$x] !== FALSE){ unset($set[$k]); }
+              //if(isset($s[$x]) && $s[$x] !== FALSE){ unset($set[$k]); }
+              if(!isset($s[$x]) || $s[$x] === FALSE){ $bool = TRUE; }
               break;
             default: //case NULL
-              if(isset($s[$x]) && !($s[$x] == NULL)){ unset($set[$k]); }
+              //if(isset($s[$x]) && !($s[$x] == NULL)){ unset($set[$k]); }
+              if(!isset($s[$x]) || $s[$x] == NULL){ $bool = TRUE; }
+          }
+        }
+        elseif(isset($s[$x]) && is_array($s[$x])){
+          if(!in_array($x, $filter)){$filter[] = $x;}
+          switch(substr($y, 0, 1)){
+            case '#': case '/': case '@': case '+': case '$': case '{': case '(': case '[': case '<':
+              if(preg_match('@\\'.$delimiter[substr($y, 0, 1)].'(i)?$@', $y)){
+                foreach($s[$x] as $z=>$a){
+                  if(preg_match($y, $a)){ $bool = TRUE; }
+                }
+                break;
+              }
+            default:
+              if(in_array($y, $s[$x])){ $bool = TRUE; }
           }
         }
         elseif(isset($s[$x])){
@@ -298,21 +318,21 @@ function array_filter($set=array(), $match=array(), $limit=array(), &$rid=NULL){
           switch(substr($y, 0, 1)){
             case '#': case '/': case '@': case '+': case '$': case '{': case '(': case '[': case '<':
               if(preg_match('@\\'.$delimiter[substr($y, 0, 1)].'(i)?$@', $y)){
-                if(!preg_match($y, $s[$x])){
-                  unset($set[$k]);
-                }
-                break; //if not matched, uses default test
+                //if(!preg_match($y, $s[$x])){ unset($set[$k]); }
+                if(preg_match($y, $s[$x])){ $bool = TRUE; }
+                //break; //if not matched, uses default test
               }
             default:
-              if($s[$x] != $y){
-                unset($set[$k]);
-              }
+              //if($s[$x] != $y){ unset($set[$k]); }
+              if($s[$x] == $y){ $bool = TRUE; }
           }
         }
         else{ //remove when $x is not set in $s
-          if(in_array($x, $filter)){ unset($set[$k]); }
+          if(TRUE || in_array($x, $filter)){ $bool = FALSE; }
         }
       }
+      if($bool === FALSE){ unset($set[$k]); }
+    }
   }
   if(is_int($limit)){
     $rdb = array_keys($set);
