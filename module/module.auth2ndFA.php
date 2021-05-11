@@ -1,6 +1,6 @@
 <?php
 namespace XLtrace\Hades\module;
-require_once(__DIR__.'/static-mirror.php');
+require_once(dirname(__DIR__).'/hades.php');
 require_once(__DIR__.'/module.authenticate.php');
 class auth2ndFA extends \XLtrace\Hades\module\authenticate {
   function get($for=NULL, &$set=array()){

@@ -1,6 +1,6 @@
 <?php
 namespace XLtrace\Hades\module;
-require_once(__DIR__.'/static-mirror.php');
+require_once(dirname(__DIR__).'/hades.php');
 class management extends \XLtrace\Hades\module {
   var $file = array();
   function get($for=NULL, &$set=array()){

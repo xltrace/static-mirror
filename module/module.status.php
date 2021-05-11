@@ -1,6 +1,6 @@
 <?php
 namespace XLtrace\Hades\module;
-require_once(__DIR__.'/static-mirror.php');
+require_once(dirname(__DIR__).'/hades.php');
 class status extends \XLtrace\Hades\module {
   function get($for=NULL, &$set=array()){
     switch(strtolower($for)){

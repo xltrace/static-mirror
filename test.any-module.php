@@ -19,7 +19,7 @@ if(substr($mod, 0, 1) == '\\'){
   $c = $mod;
 }
 else{
-  if(file_exists(__DIR__.'/module.'.$mod.'.php')){ require_once(__DIR__.'/module.'.$mod.'.php'); }
+  if(file_exists(__DIR__.'/module/module.'.$mod.'.php')){ require_once(__DIR__.'/module/module.'.$mod.'.php'); }
   $c = '\\XLtrace\\Hades\module\\'.$mod;
   /*fix*/ if(!class_exists($c)){ $c = '\\XLtrace\\Hades\\'.$mod; }
 }

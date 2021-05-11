@@ -19,7 +19,7 @@
 ]
 *****************/
 namespace XLtrace\Hades\module;
-require_once(__DIR__.'/static-mirror.php');
+require_once(dirname(__DIR__).'/hades.php');
 class sitemap extends \XLtrace\Hades\module {
   var $standalone = TRUE;
   function get($for=NULL, &$set=array()){

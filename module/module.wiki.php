@@ -1,6 +1,6 @@
 <?php
 namespace XLtrace\Hades\module;
-require_once(__DIR__.'/static-mirror.php');
+require_once(dirname(__DIR__).'/hades.php');
 class wiki extends \XLtrace\Hades\module {
   var $standalone = TRUE;
   var $file = array();

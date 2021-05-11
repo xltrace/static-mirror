@@ -19,7 +19,7 @@ function get($for=NULL, &$set=array(), $module=FALSE, $settings=array()){
         $scache = $settings;
       }
       if(!(substr($m, 0, 1) == '\\')){
-        if(file_exists(__DIR__.'/module.'.$m.'.php')){ require_once(__DIR__.'/module.'.$m.'.php'); }
+        if(file_exists(__DIR__.'/module/module.'.$m.'.php')){ require_once(__DIR__.'/module/module.'.$m.'.php'); }
         $m = '\\XLtrace\\Hades\\module\\'.$mcache;
         if(!class_exists($m)){ $m = '\\XLtrace\\Hades\\'.$mcache; }
       }
