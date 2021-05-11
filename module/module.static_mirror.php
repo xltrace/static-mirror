@@ -171,7 +171,7 @@ class static_mirror extends \XLtrace\Hades\module {
     \XLtrace\Hades\hermes('update');
     if(isset($_GET['all'])){ \XLtrace\Hades\run_slaves('update'); }
 
-    if(!file_exists(__DIR__.'/static-mirror.json')){ echo "No MIRROR configured."; return FALSE; }
+    if(!file_exists( /*dirname(__DIR__).'/static-mirror.json'*/ \XLtrace\Hades\static_mirror_file() )){ echo "No MIRROR configured."; return FALSE; }
 
     $conf = \XLtrace\Hades\file_get_json(\XLtrace\Hades\static_mirror_file(), TRUE, array());
     if(isset($conf[$file])){ $src = $conf[$file]; }

@@ -32,6 +32,7 @@ if((defined('STATIC_MIRROR_ENABLE') ? STATIC_MIRROR_ENABLE : TRUE) && basename(d
   //phpinfo(32); // $_SERVER['REQUEST_URI'] $_SERVER['SCRIPT_NAME'] $_SERVER['PHP_SELF']
   /*fix*/ if(!isset($_GET['for'])){$_GET['for'] = (isset($_SERVER['PHP_SELF']) ? substr($_SERVER['PHP_SELF'],1) : NULL);}
   $s = $settings = array('standalone'=>FALSE,'path'=>$path,'patch'=>$patch); foreach(\XLtrace\Hades\module_var_list() as $z){ if(!in_array($z, array('root','mapper','path','patch')) && isset($_GET[$z])){ $settings[$z] = $_GET[$z]; } }
-  print \XLtrace\Hades\get($_GET['for'], $s, array('auth2ndFA','authenticate','status',array('module'=>'sitemap','settings'=>array('standalone'=>TRUE)),array('module'=>'wiki','settings'=>array('root'=>__DIR__,'mode'=>'text/html','standalone'=>$settings['standalone'])),'maintenance','management','static_mirror'), $settings); exit;
+  $res = \XLtrace\Hades\get($_GET['for'], $s, array('auth2ndFA','authenticate','status',array('module'=>'sitemap','settings'=>array('standalone'=>TRUE)),array('module'=>'wiki','settings'=>array('root'=>__DIR__,'mode'=>'text/html','standalone'=>$settings['standalone'])),'maintenance','management','static_mirror'), $settings);
+  if($res !== TRUE){ print $res; }
 }
 ?>
